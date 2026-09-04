@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { EmailMessage, EmailThreadWithRelations } from "@/lib/types";
+import type { EmailCategory, EmailMessage, EmailThreadWithRelations } from "@/lib/types";
 
 const THREAD_SELECT = `*, owner:profiles!email_threads_owner_id_fkey(id, full_name, role, email)`;
 
@@ -109,13 +109,20 @@ export async function getInboxCounts(ownerId?: string): Promise<InboxCounts> {
   };
 }
 
-/** Threads with an AI-generated reply draft waiting for review, for a given owner. */
-export async function getDraftsReadyCount(ownerId: string): Promise<number> {
+/** Category breakdown of the "needs attention" set — the counts row under the tabs. */
+export async function getCategoryCounts(): Promise<Partial<Record<EmailCategory, number>>> {
   const supabase = await createClient();
-  const { count } = await supabase
+  const { data } = await supabase
     .from("email_threads")
-    .select("id", { count: "exact", head: true })
-    .eq("owner_id", ownerId)
-    .not("draft_reply", "is", null);
-  return count ?? 0;
+    .select("category")
+    .eq("status", "needs_attention")
+    .in("action", ["reply", "task", "reply_task"]);
+
+  const counts: Partial<Record<EmailCategory, number>> = {};
+  for (const row of data ?? []) {
+    const category = row.category as EmailCategory | null;
+    if (!category) continue;
+    counts[category] = (counts[category] ?? 0) + 1;
+  }
+  return counts;
 }

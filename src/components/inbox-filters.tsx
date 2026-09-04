@@ -32,7 +32,7 @@ export function InboxFilters({
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set(key, value);
     else params.delete(key);
-    startTransition(() => router.push(`/inbox?${params.toString()}`));
+    startTransition(() => router.push(`/communication?${params.toString()}`));
   }
 
   function resolvedOwnerQuickValue() {

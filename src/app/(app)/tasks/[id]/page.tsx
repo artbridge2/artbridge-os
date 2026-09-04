@@ -69,7 +69,7 @@ export default async function TaskDetailPage({
 
           {task.source_thread && (
             <Link
-              href={`/inbox/${task.source_thread.id}`}
+              href={`/communication/${task.source_thread.id}`}
               className="block text-sm text-muted-foreground underline hover:text-foreground"
             >
               ← Email: {task.source_thread.subject ?? "(no subject)"}

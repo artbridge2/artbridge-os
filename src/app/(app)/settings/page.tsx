@@ -49,8 +49,10 @@ export default async function SettingsPage({
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Gmail (Inbox) DEBUG-MARKER-9f3</h2>
-        {gmailError && <p className="text-sm text-destructive">DEBUG error: {gmailError}</p>}
+        <h2 className="text-sm font-semibold">Gmail</h2>
+        {gmailError && (
+          <p className="text-sm text-destructive">Hiba a Gmail állapot lekérésekor: {gmailError}</p>
+        )}
         {gmailMessage && <p className="text-sm text-muted-foreground">{gmailMessage}</p>}
         {gmail.connected ? (
           <>

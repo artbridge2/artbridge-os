@@ -146,15 +146,25 @@ export interface EmailMessage {
 }
 
 export const CATEGORY_LABELS: Record<EmailCategory, string> = {
-  customer: "Customer",
-  artist: "Artist",
+  customer: "Customers",
+  artist: "Artists",
   development: "Development",
   finance_admin: "Finance & Admin",
-  supplier_logistics: "Supplier & Logistics",
-  marketing_partner: "Marketing & Partner",
+  supplier_logistics: "Suppliers",
+  marketing_partner: "Partners",
   system: "System",
   noise: "Noise",
 };
+
+/** The categories shown as their own row in Communication's breakdown — system/noise fold into "Other" instead. */
+export const COMMUNICATION_CATEGORY_GROUPS: EmailCategory[] = [
+  "customer",
+  "artist",
+  "development",
+  "marketing_partner",
+  "finance_admin",
+  "supplier_logistics",
+];
 
 export const ACTION_LABELS: Record<EmailAction, string> = {
   reply: "Reply",

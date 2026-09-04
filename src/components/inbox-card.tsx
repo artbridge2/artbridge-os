@@ -11,7 +11,7 @@ export function InboxCard({ thread }: { thread: EmailThreadWithRelations }) {
 
   return (
     <Link
-      href={`/inbox/${thread.id}`}
+      href={`/communication/${thread.id}`}
       className="block rounded-lg border border-border bg-card px-4 py-3 hover:border-foreground/20"
     >
       <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">

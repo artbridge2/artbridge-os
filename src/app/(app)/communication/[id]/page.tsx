@@ -26,11 +26,11 @@ export default async function ThreadDetailPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <Link
-        href="/inbox"
+        href="/communication"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        Inbox
+        Communication
       </Link>
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-[1fr_280px]">
