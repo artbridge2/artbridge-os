@@ -34,7 +34,17 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
+
+  if (error) {
+    console.error("[proxy] getUser error:", error.message, {
+      urlSet: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      keySet: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      keyLen: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length,
+      cookieNames: request.cookies.getAll().map((c) => c.name),
+    });
+  }
 
   const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
