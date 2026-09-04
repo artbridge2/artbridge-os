@@ -45,11 +45,14 @@ export interface Task {
   completed_at: string | null;
   next_action: string | null;
   notes: string | null;
+  source_type: "email" | null;
+  source_thread_id: string | null;
 }
 
 export interface TaskWithRelations extends Task {
   owner: Profile | null;
   area: Area | null;
+  source_thread: { id: string; subject: string | null } | null;
 }
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -79,4 +82,91 @@ export const RECURRING_FREQ_LABELS: Record<RecurringFreq, string> = {
   weekly: "Hetente",
   monthly: "Havonta",
   quarterly: "Negyedévente",
+};
+
+// ---------------------------------------------------------------------------
+// Inbox
+// ---------------------------------------------------------------------------
+
+export type EmailCategory =
+  | "customer"
+  | "artist"
+  | "development"
+  | "finance_admin"
+  | "supplier_logistics"
+  | "marketing_partner"
+  | "system"
+  | "noise";
+
+export type EmailAction = "reply" | "task" | "reply_task" | "waiting" | "fyi" | "ignore";
+
+export type ThreadStatus = "needs_attention" | "waiting" | "done";
+
+export interface EmailThread {
+  id: string;
+  gmail_thread_id: string;
+  subject: string | null;
+  participants: { name?: string; email: string }[];
+  sender: string | null;
+  last_message_at: string | null;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  snippet: string | null;
+  category: EmailCategory | null;
+  action: EmailAction | null;
+  owner_id: string | null;
+  priority: TaskPriority;
+  status: ThreadStatus;
+  follow_up_at: string | null;
+  ai_summary: string | null;
+  ai_confidence: number | null;
+  suggested_task_title: string | null;
+  draft_reply: string | null;
+  draft_generated_at: string | null;
+  classification_version: number;
+  last_classified_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailThreadWithRelations extends EmailThread {
+  owner: Profile | null;
+}
+
+export interface EmailMessage {
+  id: string;
+  thread_id: string;
+  gmail_message_id: string;
+  sender: string | null;
+  recipients: { name?: string; email: string }[];
+  is_inbound: boolean;
+  sanitized_body: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export const CATEGORY_LABELS: Record<EmailCategory, string> = {
+  customer: "Customer",
+  artist: "Artist",
+  development: "Development",
+  finance_admin: "Finance & Admin",
+  supplier_logistics: "Supplier & Logistics",
+  marketing_partner: "Marketing & Partner",
+  system: "System",
+  noise: "Noise",
+};
+
+export const ACTION_LABELS: Record<EmailAction, string> = {
+  reply: "Reply",
+  task: "Task",
+  reply_task: "Reply + Task",
+  waiting: "Waiting",
+  fyi: "FYI",
+  ignore: "Ignore",
+};
+
+export const THREAD_STATUS_LABELS: Record<ThreadStatus, string> = {
+  needs_attention: "Needs attention",
+  waiting: "Waiting",
+  done: "Done",
 };

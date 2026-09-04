@@ -74,4 +74,17 @@ export function formatDueLabel(dueDate: string, today: string = todayInBudapest(
   return format(parseDateOnly(dueDate), "MM.dd");
 }
 
+/** "X órája" / "X napja" style elapsed-time label for a past ISO timestamp. */
+export function formatElapsed(sinceIso: string): string {
+  const hours = Math.floor((Date.now() - new Date(sinceIso).getTime()) / 3_600_000);
+  if (hours < 1) return "most";
+  if (hours < 24) return `${hours} órája`;
+  return `${Math.floor(hours / 24)} napja`;
+}
+
+/** Whether a past ISO timestamp is more than `hours` hours ago. */
+export function isOlderThanHours(sinceIso: string, hours: number): boolean {
+  return Date.now() - new Date(sinceIso).getTime() > hours * 3_600_000;
+}
+
 export { addDays, addWeeks, addMonths, fromZonedTime };

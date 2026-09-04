@@ -1,12 +1,19 @@
+import Link from "next/link";
 import { getCurrentProfile } from "@/lib/dal";
 import { getTasks } from "@/lib/queries";
+import { getDraftsReadyCount, getEmailThreads } from "@/lib/queries-inbox";
 import { bucketTasks, greeting } from "@/lib/buckets";
 import { TaskBucketSection } from "@/components/task-bucket-section";
+import { InboxCard } from "@/components/inbox-card";
 import { ROLE_LABELS } from "@/lib/types";
 
 export default async function HomePage() {
   const profile = await getCurrentProfile();
-  const tasks = await getTasks({ ownerId: profile.id, excludeDone: true });
+  const [tasks, attentionThreads, draftsReady] = await Promise.all([
+    getTasks({ ownerId: profile.id, excludeDone: true }),
+    getEmailThreads({ view: "attention", ownerId: profile.id }),
+    getDraftsReadyCount(profile.id),
+  ]);
   const buckets = bucketTasks(tasks);
 
   const totalOpen =
@@ -24,6 +31,36 @@ export default async function HomePage() {
             : `${totalOpen} tennivaló vár rád ezen a héten.`}
         </p>
       </div>
+
+      {(attentionThreads.length > 0 || draftsReady > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-sm font-semibold">Needs your attention</h2>
+            <span className="text-sm text-muted-foreground">{attentionThreads.length}</span>
+          </div>
+          <div className="space-y-2">
+            {attentionThreads.slice(0, 3).map((thread) => (
+              <InboxCard key={thread.id} thread={thread} />
+            ))}
+          </div>
+          {draftsReady > 0 && (
+            <Link
+              href="/inbox?view=attention&owner=me"
+              className="block text-sm text-muted-foreground hover:text-foreground"
+            >
+              AI prepared: {draftsReady} reply draft{draftsReady === 1 ? "" : "s"} ready for review
+            </Link>
+          )}
+          {attentionThreads.length > 3 && (
+            <Link
+              href="/inbox?view=attention&owner=me"
+              className="block text-sm text-muted-foreground hover:text-foreground"
+            >
+              +{attentionThreads.length - 3} további →
+            </Link>
+          )}
+        </div>
+      )}
 
       <div className="space-y-6">
         <TaskBucketSection

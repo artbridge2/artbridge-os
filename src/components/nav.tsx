@@ -9,6 +9,7 @@ import { LogOut } from "lucide-react";
 
 const LINKS = [
   { href: "/", label: "Home" },
+  { href: "/inbox", label: "Inbox" },
   { href: "/tasks", label: "Tasks" },
   { href: "/planning", label: "Planning" },
 ];

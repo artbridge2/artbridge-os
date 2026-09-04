@@ -5,7 +5,8 @@ import type { Area, Profile, TaskWithRelations } from "@/lib/types";
 const TASK_SELECT = `
   *,
   owner:profiles!tasks_owner_id_fkey(id, full_name, role, email),
-  area:areas(id, name, sort_order)
+  area:areas(id, name, sort_order),
+  source_thread:email_threads(id, subject)
 `;
 
 export async function getProfiles(): Promise<Profile[]> {

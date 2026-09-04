@@ -66,6 +66,15 @@ export default async function TaskDetailPage({
               <p className="mt-1 whitespace-pre-wrap text-sm">{task.notes}</p>
             </div>
           )}
+
+          {task.source_thread && (
+            <Link
+              href={`/inbox/${task.source_thread.id}`}
+              className="block text-sm text-muted-foreground underline hover:text-foreground"
+            >
+              ← Email: {task.source_thread.subject ?? "(no subject)"}
+            </Link>
+          )}
         </div>
 
         <TaskDetailControls task={task} profiles={profiles} />
