@@ -5,8 +5,9 @@ const PUBLIC_PATHS = ["/login", "/auth/callback"];
 
 /**
  * Refreshes the Supabase auth session on every request and redirects
- * unauthenticated users to /login. Called from proxy.ts (Next.js 16 renamed
- * "middleware" to "proxy" — see node_modules/next/dist/docs).
+ * unauthenticated users to /login. Called from middleware.ts (Next.js 16
+ * renamed "middleware" to "proxy", but the old filename is kept here for
+ * platform build-tool compatibility — see src/middleware.ts).
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -34,17 +35,7 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
-    error,
   } = await supabase.auth.getUser();
-
-  if (error) {
-    console.error("[proxy] getUser error:", error.message, {
-      urlSet: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-      keySet: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      keyLen: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.length,
-      cookieNames: request.cookies.getAll().map((c) => c.name),
-    });
-  }
 
   const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
