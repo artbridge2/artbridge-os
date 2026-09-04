@@ -39,6 +39,19 @@ export async function exchangeCodeForTokens(code: string) {
   return tokens;
 }
 
+/** The Gmail address these tokens belong to — used right after the OAuth exchange, before anything is stored. */
+export async function getEmailForTokens(tokens: {
+  access_token?: string | null;
+  refresh_token?: string | null;
+}): Promise<string> {
+  const auth = oauthClient();
+  auth.setCredentials(tokens);
+  const gmail = google.gmail({ version: "v1", auth });
+  const { data } = await gmail.users.getProfile({ userId: "me" });
+  if (!data.emailAddress) throw new Error("Gmail did not return an email address");
+  return data.emailAddress;
+}
+
 /** Loads the stored refresh token and returns an authorized Gmail client, keeping the cached access token fresh in the DB as googleapis silently refreshes it. */
 async function getAuthorizedClient(): Promise<gmail_v1.Gmail> {
   const admin = createAdminClient();

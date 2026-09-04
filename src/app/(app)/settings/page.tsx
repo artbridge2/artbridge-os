@@ -1,12 +1,33 @@
 import { getCurrentProfile } from "@/lib/dal";
 import { getAreas } from "@/lib/queries";
+import { getGmailConnectionStatus } from "@/lib/gmail/status";
 import { signOut } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { AddAreaForm } from "@/components/add-area-form";
+import { GmailSyncButton } from "@/components/gmail-sync-button";
 import { ROLE_LABELS } from "@/lib/types";
 
-export default async function SettingsPage() {
-  const [profile, areas] = await Promise.all([getCurrentProfile(), getAreas()]);
+const GMAIL_STATUS_MESSAGES: Record<string, string> = {
+  connected: "Gmail sikeresen összekötve. Az első szinkron elindult a háttérben.",
+  error: "A Gmail összekötés megszakadt. Próbáld újra.",
+  missing_refresh_token:
+    "A Google nem adott vissza refresh tokent. Vond vissza a hozzáférést a myaccount.google.com/permissions oldalon, majd kösd össze újra.",
+};
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const [profile, areas, gmail] = await Promise.all([
+    getCurrentProfile(),
+    getAreas(),
+    getGmailConnectionStatus(),
+  ]);
+
+  const gmailMessage =
+    typeof params.gmail === "string" ? GMAIL_STATUS_MESSAGES[params.gmail] : undefined;
 
   return (
     <div className="max-w-md space-y-8">
@@ -22,6 +43,29 @@ export default async function SettingsPage() {
             Kijelentkezés
           </Button>
         </form>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold">Gmail (Inbox)</h2>
+        {gmailMessage && <p className="text-sm text-muted-foreground">{gmailMessage}</p>}
+        {gmail.connected ? (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Összekötve: {gmail.connectedEmail}
+              {gmail.lastSyncedAt && (
+                <> · utolsó szinkron: {new Date(gmail.lastSyncedAt).toLocaleString("hu-HU")}</>
+              )}
+            </p>
+            <GmailSyncButton />
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">Még nincs összekötve.</p>
+            <Button size="sm" render={<a href="/api/gmail/connect" />}>
+              Connect Gmail
+            </Button>
+          </>
+        )}
       </section>
 
       <section className="space-y-3">
