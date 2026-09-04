@@ -20,11 +20,14 @@ export default async function SettingsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const [profile, areas, gmail] = await Promise.all([
-    getCurrentProfile(),
-    getAreas(),
-    getGmailConnectionStatus(),
-  ]);
+  const [profile, areas] = await Promise.all([getCurrentProfile(), getAreas()]);
+  let gmail: Awaited<ReturnType<typeof getGmailConnectionStatus>> = { connected: false };
+  let gmailError: string | null = null;
+  try {
+    gmail = await getGmailConnectionStatus();
+  } catch (err) {
+    gmailError = err instanceof Error ? err.message : String(err);
+  }
 
   const gmailMessage =
     typeof params.gmail === "string" ? GMAIL_STATUS_MESSAGES[params.gmail] : undefined;
@@ -46,7 +49,8 @@ export default async function SettingsPage({
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Gmail (Inbox)</h2>
+        <h2 className="text-sm font-semibold">Gmail (Inbox) DEBUG-MARKER-9f3</h2>
+        {gmailError && <p className="text-sm text-destructive">DEBUG error: {gmailError}</p>}
         {gmailMessage && <p className="text-sm text-muted-foreground">{gmailMessage}</p>}
         {gmail.connected ? (
           <>
