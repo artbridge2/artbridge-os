@@ -1,22 +1,22 @@
 import Link from "next/link";
-import { LoginForm } from "./login-form";
+import { ForgotPasswordForm } from "./forgot-password-form";
 
-export default function LoginPage() {
+export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="space-y-1 text-center">
-          <h1 className="text-xl font-semibold tracking-tight">Artbridge OS</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Elfelejtett jelszó</h1>
           <p className="text-sm text-muted-foreground">
-            Belépés email címmel és jelszóval.
+            Add meg az email címed, és küldünk egy linket az új jelszó beállításához.
           </p>
         </div>
-        <LoginForm />
+        <ForgotPasswordForm />
         <Link
-          href="/forgot-password"
+          href="/login"
           className="block text-center text-sm text-muted-foreground hover:text-foreground"
         >
-          Elfelejtett jelszó?
+          ← Vissza a belépéshez
         </Link>
       </div>
     </div>
