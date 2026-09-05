@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { runIncrementalSync } from "@/lib/gmail/sync";
+import { archiveStaleResolvedCases, runIncrementalSync } from "@/lib/gmail/sync";
 
 /**
  * Vercel Cron target (see vercel.json). Vercel signs cron requests with
@@ -16,5 +16,6 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await runIncrementalSync();
-  return NextResponse.json(result);
+  const archived = await archiveStaleResolvedCases();
+  return NextResponse.json({ ...result, archived });
 }

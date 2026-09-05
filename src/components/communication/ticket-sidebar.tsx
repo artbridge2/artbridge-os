@@ -3,17 +3,30 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Plus, ShoppingBag, X } from "lucide-react";
+import { ArrowRight, ExternalLink, Plus, ShoppingBag, X } from "lucide-react";
 import {
-  convertToInternal,
+  archiveCase,
+  assignToMe,
   deleteConversation,
   markResolved,
   markWaiting,
   reassignThread,
+  restoreCase,
+  setIssueType,
+  setPriority,
   updateLabels,
 } from "@/actions/inbox";
+import type { ShopifyCustomerMatch } from "@/lib/shopify/lookup";
 import { initials, senderDisplayName } from "@/lib/communication-style";
-import { ROLE_LABELS, type EmailThreadWithRelations, type Profile } from "@/lib/types";
+import {
+  CASE_PRIORITY_LABELS,
+  CUSTOMER_ISSUE_TYPES,
+  ISSUE_TYPE_LABELS,
+  ROLE_LABELS,
+  type CasePriority,
+  type EmailThreadWithRelations,
+  type Profile,
+} from "@/lib/types";
 
 function SidebarCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -41,12 +54,23 @@ function ActionButton({ label, danger, onClick, disabled }: { label: string; dan
   );
 }
 
-export function TicketSidebar({ thread, profiles }: { thread: EmailThreadWithRelations; profiles: Profile[] }) {
+export function TicketSidebar({
+  thread,
+  profiles,
+  shopifyMatch,
+  shopifyConnected,
+}: {
+  thread: EmailThreadWithRelations;
+  profiles: Profile[];
+  shopifyMatch: ShopifyCustomerMatch | null;
+  shopifyConnected: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [labelInput, setLabelInput] = useState("");
   const [addingLabel, setAddingLabel] = useState(false);
   const name = senderDisplayName(thread);
+  const assignableProfiles = profiles.filter((p) => p.role !== "kurator");
 
   function run(fn: () => Promise<void>) {
     startTransition(async () => {
@@ -79,27 +103,76 @@ export function TicketSidebar({ thread, profiles }: { thread: EmailThreadWithRel
             {initials(name)}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-[14px] font-semibold text-[#12181f]">{name}</p>
-            {thread.sender && thread.sender !== name && (
-              <p className="truncate text-[13px] text-[#8a909a]">{thread.sender}</p>
-            )}
+            <p className="truncate text-[14px] font-semibold text-[#12181f]">{shopifyMatch?.name ?? name}</p>
+            <p className="truncate text-[13px] text-[#8a909a]">{shopifyMatch?.email ?? thread.sender}</p>
+            {shopifyMatch?.phone && <p className="truncate text-[13px] text-[#8a909a]">{shopifyMatch.phone}</p>}
+            {shopifyMatch?.location && <p className="truncate text-[13px] text-[#8a909a]">{shopifyMatch.location}</p>}
           </div>
         </div>
       </SidebarCard>
 
       <SidebarCard title="Order">
-        <div className="flex flex-col items-start gap-2">
-          <span className="flex size-9 items-center justify-center rounded-full bg-[#f0f0f0]">
-            <ShoppingBag className="size-4 text-[#8a909a]" />
-          </span>
-          <p className="text-[13px] text-[#8a909a]">
-            Connect Shopify to see this customer&apos;s order history here.
-          </p>
-          <Link href="/settings" className="flex items-center gap-1 text-[13px] font-medium text-[#3b82f6]">
-            Connect Shopify <ArrowRight className="size-3.5" />
-          </Link>
-        </div>
+        {!shopifyConnected ? (
+          <div className="flex flex-col items-start gap-2">
+            <span className="flex size-9 items-center justify-center rounded-full bg-[#f0f0f0]">
+              <ShoppingBag className="size-4 text-[#8a909a]" />
+            </span>
+            <p className="text-[13px] text-[#8a909a]">Connect Shopify to see this customer&apos;s order history here.</p>
+            <Link href="/settings" className="flex items-center gap-1 text-[13px] font-medium text-[#3b82f6]">
+              Connect Shopify <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
+        ) : !shopifyMatch ? (
+          <p className="text-[13px] text-[#8a909a]">No Shopify customer found for this email address.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[13px] text-[#8a909a]">{shopifyMatch.ordersCount} order(s)</p>
+              <a
+                href={shopifyMatch.adminUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-[13px] font-medium text-[#3b82f6]"
+              >
+                View customer <ExternalLink className="size-3.5" />
+              </a>
+            </div>
+            {shopifyMatch.recentOrders.map((order) => (
+              <div key={order.id} className="rounded-lg border border-[#eeeeee] p-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[13.5px] font-semibold text-[#12181f]">{order.name}</p>
+                  <p className="text-[12.5px] text-[#9aa0a8]">{new Date(order.createdAt).toLocaleDateString()}</p>
+                </div>
+                <p className="mt-0.5 text-[12.5px] text-[#8a909a]">{order.lineItems.join(", ")}</p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-[12.5px] text-[#8a909a]">{order.fulfillmentStatus}</span>
+                  <span className="text-[12.5px] font-medium text-[#12181f]">
+                    {order.totalPrice} {order.currency}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </SidebarCard>
+
+      {thread.category === "customer" && (
+        <SidebarCard title="Issue type">
+          <select
+            defaultValue={thread.issue_type ?? ""}
+            disabled={pending}
+            onChange={(e) => run(() => setIssueType(thread.id, e.target.value || null))}
+            className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-[13px]"
+          >
+            <option value="">Not set</option>
+            {CUSTOMER_ISSUE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {ISSUE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </SidebarCard>
+      )}
 
       <SidebarCard
         title="Labels"
@@ -150,12 +223,22 @@ export function TicketSidebar({ thread, profiles }: { thread: EmailThreadWithRel
 
       <SidebarCard title="Actions">
         <div className="flex flex-col">
-          {thread.status !== "waiting" && (
-            <ActionButton label="Mark as waiting" disabled={pending} onClick={() => run(() => markWaiting(thread.id))} />
-          )}
-          {thread.status !== "done" && (
-            <ActionButton label="Mark as resolved" disabled={pending} onClick={() => run(() => markResolved(thread.id))} />
-          )}
+          <div className="px-2 py-1.5">
+            <label className="text-[12px] text-[#9aa0a8]">Priority</label>
+            <select
+              defaultValue={thread.priority}
+              disabled={pending}
+              onChange={(e) => run(() => setPriority(thread.id, e.target.value as CasePriority))}
+              className="mt-1 h-8 w-full rounded-md border border-input bg-transparent px-2 text-[13px]"
+            >
+              {Object.entries(CASE_PRIORITY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="px-2 py-1.5">
             <label className="text-[12px] text-[#9aa0a8]">Assign to</label>
             <select
@@ -165,20 +248,28 @@ export function TicketSidebar({ thread, profiles }: { thread: EmailThreadWithRel
               className="mt-1 h-8 w-full rounded-md border border-input bg-transparent px-2 text-[13px]"
             >
               <option value="">Unassigned</option>
-              {profiles.map((p) => (
+              {assignableProfiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {ROLE_LABELS[p.role]}
                 </option>
               ))}
             </select>
           </div>
-          {thread.category !== "internal" && (
-            <ActionButton
-              label="Convert to internal"
-              disabled={pending}
-              onClick={() => run(() => convertToInternal(thread.id))}
-            />
+          <ActionButton label="Assign to me" disabled={pending} onClick={() => run(() => assignToMe(thread.id))} />
+
+          {thread.status !== "waiting" && thread.status !== "resolved" && thread.status !== "archived" && (
+            <ActionButton label="Mark as waiting" disabled={pending} onClick={() => run(() => markWaiting(thread.id))} />
           )}
+          {thread.status !== "resolved" && thread.status !== "archived" && (
+            <ActionButton label="Resolve" disabled={pending} onClick={() => run(() => markResolved(thread.id))} />
+          )}
+          {thread.status === "resolved" && (
+            <ActionButton label="Archive now" disabled={pending} onClick={() => run(() => archiveCase(thread.id))} />
+          )}
+          {thread.status === "archived" && (
+            <ActionButton label="Restore" disabled={pending} onClick={() => run(() => restoreCase(thread.id))} />
+          )}
+
           <ActionButton
             label="Delete conversation"
             danger

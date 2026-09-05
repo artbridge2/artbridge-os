@@ -85,21 +85,16 @@ export const RECURRING_FREQ_LABELS: Record<RecurringFreq, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Inbox
+// Communication
 // ---------------------------------------------------------------------------
 
-export type EmailCategory =
-  | "customer"
-  | "artist"
-  | "developer"
-  | "supplier"
-  | "internal"
-  | "system"
-  | "noise";
+/** "Other" is the deliberate fallback for uncertain/unclassified communication — never silently dropped. */
+export type EmailCategory = "customer" | "artist" | "developer" | "supplier" | "other";
 
-export type EmailAction = "reply" | "task" | "reply_task" | "waiting" | "fyi" | "ignore";
+/** Real, persisted lifecycle — not derived. Archived is reached automatically 3 days after Resolved. */
+export type CaseStatus = "new" | "needs_reply" | "needs_review" | "in_progress" | "waiting" | "resolved" | "archived";
 
-export type ThreadStatus = "needs_attention" | "waiting" | "done";
+export type CasePriority = "low" | "normal" | "high" | "urgent";
 
 /** Ticket #, e.g. "#4821" — a short human-friendly reference, not the UUID. */
 export function threadReference(thread: { created_at: string }): string {
@@ -116,13 +111,20 @@ export interface EmailThread {
   last_inbound_at: string | null;
   last_outbound_at: string | null;
   snippet: string | null;
-  category: EmailCategory | null;
-  action: EmailAction | null;
+  category: EmailCategory;
+  issue_type: string | null;
+  suggested_next_action: string | null;
   owner_id: string | null;
-  priority: TaskPriority;
-  status: ThreadStatus;
+  priority: CasePriority;
+  status: CaseStatus;
+  /** Ingestion decided this shouldn't be an active case (newsletter, automated no-reply, ...). Never shown in normal queues. */
+  suppressed: boolean;
   labels: string[];
+  shopify_customer_id: string | null;
+  shopify_order_id: string | null;
+  shopify_match_confidence: "confirmed" | "suggested" | null;
   resolved_at: string | null;
+  archived_at: string | null;
   deleted_at: string | null;
   follow_up_at: string | null;
   ai_summary: string | null;
@@ -153,14 +155,33 @@ export interface EmailMessage {
   created_at: string;
 }
 
+export interface CaseEvent {
+  id: string;
+  thread_id: string;
+  actor_id: string | null;
+  event_type: string;
+  from_value: string | null;
+  to_value: string | null;
+  created_at: string;
+}
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  href: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
 export const CATEGORY_LABELS: Record<EmailCategory, string> = {
   customer: "Customers",
   artist: "Artists",
   developer: "Developers",
   supplier: "Suppliers",
-  internal: "Internal",
-  system: "System",
-  noise: "Noise",
+  other: "Other",
 };
 
 /** Singular form for the ticket-detail category tag ("Customer", not "Customers"). */
@@ -169,53 +190,63 @@ export const CATEGORY_LABELS_SINGULAR: Record<EmailCategory, string> = {
   artist: "Artist",
   developer: "Developer",
   supplier: "Supplier",
-  internal: "Internal",
-  system: "System",
-  noise: "Noise",
+  other: "Other",
 };
 
-/** The categories shown as their own filter tab in Communication — system/noise are hidden by default. */
-export const COMMUNICATION_CATEGORY_GROUPS: EmailCategory[] = [
-  "customer",
-  "artist",
-  "developer",
-  "supplier",
-  "internal",
-];
-
-export const ACTION_LABELS: Record<EmailAction, string> = {
-  reply: "Reply",
-  task: "Task",
-  reply_task: "Reply + Task",
-  waiting: "Waiting",
-  fyi: "FYI",
-  ignore: "Ignore",
-};
-
-export const THREAD_STATUS_LABELS: Record<ThreadStatus, string> = {
-  needs_attention: "Needs attention",
-  waiting: "Waiting",
-  done: "Done",
-};
-
-// ---------------------------------------------------------------------------
-// Communication case status — a display-level status derived from
-// status+action rather than its own column, so "Needs reply" vs "Needs
-// review" doesn't require a schema change.
-// ---------------------------------------------------------------------------
-
-export type CaseStatus = "needs_reply" | "needs_review" | "waiting" | "resolved";
+export const COMMUNICATION_CATEGORY_GROUPS: EmailCategory[] = ["customer", "artist", "developer", "supplier", "other"];
 
 export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {
+  new: "New",
   needs_reply: "Needs reply",
   needs_review: "Needs review",
+  in_progress: "In progress",
   waiting: "Waiting",
   resolved: "Resolved",
+  archived: "Archived",
 };
 
-export function deriveCaseStatus(thread: { status: ThreadStatus; action: EmailAction | null }): CaseStatus {
-  if (thread.status === "done") return "resolved";
-  if (thread.status === "waiting") return "waiting";
-  if (thread.action === "reply" || thread.action === "reply_task") return "needs_reply";
-  return "needs_review";
+/** Statuses that count as "active"/actionable for badges, queues and the "Open" stat. */
+export const ACTIVE_CASE_STATUSES: CaseStatus[] = ["new", "needs_reply", "needs_review", "in_progress", "waiting"];
+
+export const CASE_PRIORITY_LABELS: Record<CasePriority, string> = {
+  low: "Low",
+  normal: "Normal",
+  high: "High",
+  urgent: "Urgent",
+};
+
+/** Controlled customer issue-type taxonomy (spec §8). Free-form column — AI/admins may extend this list without a migration. */
+export const CUSTOMER_ISSUE_TYPES = [
+  "damaged_product",
+  "wrong_product",
+  "missing_item",
+  "delivery_problem",
+  "delivery_status",
+  "order_change",
+  "cancellation",
+  "return",
+  "refund",
+  "product_question",
+  "payment_problem",
+  "other",
+] as const;
+
+export const ISSUE_TYPE_LABELS: Record<string, string> = {
+  damaged_product: "Damaged product",
+  wrong_product: "Wrong product",
+  missing_item: "Missing item",
+  delivery_problem: "Delivery problem",
+  delivery_status: "Delivery status",
+  order_change: "Order change",
+  cancellation: "Cancellation",
+  return: "Return",
+  refund: "Refund",
+  product_question: "Product question",
+  payment_problem: "Payment problem",
+  other: "Other",
+};
+
+export function issueTypeLabel(issueType: string | null): string | null {
+  if (!issueType) return null;
+  return ISSUE_TYPE_LABELS[issueType] ?? issueType;
 }

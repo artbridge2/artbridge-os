@@ -8,7 +8,8 @@ import {
   type FetchedThread,
 } from "./client";
 import { classifyThread, CLASSIFICATION_VERSION } from "@/lib/ai/provider";
-import type { ThreadStatus } from "@/lib/types";
+import { decideIngestion } from "./ingestion";
+import type { CaseStatus } from "@/lib/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -25,10 +26,12 @@ async function getConnectedEmail(admin: Admin): Promise<string> {
 }
 
 /**
- * Stores/updates one thread + its messages, and (re)classifies it only when
- * the newest message hasn't been classified yet — see cost-control notes in
- * lib/ai/rules.ts / the Inbox spec. Never throws for a single bad thread —
- * logs and moves on so one malformed email doesn't stop the whole sync.
+ * Stores/updates one thread + its messages, decides whether it should be an
+ * active case (rules first, then AI when configured), and (re)classifies
+ * only when the newest message hasn't been classified yet — see cost-control
+ * notes in lib/ai/rules.ts / the Communication spec. Never throws for a
+ * single bad thread — logs and moves on so one malformed email doesn't stop
+ * the whole sync.
  */
 async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void> {
   const newestMessageId = fetched.messages.at(-1)?.gmailMessageId ?? null;
@@ -37,17 +40,15 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
 
   const { data: existing } = await admin
     .from("email_threads")
-    .select("id, last_classified_message_id, status, owner_id, classification_version")
+    .select("id, last_classified_message_id, status, owner_id, category, suppressed, classification_version")
     .eq("gmail_thread_id", fetched.gmailThreadId)
     .maybeSingle();
 
-  // A reply we already sent moved this thread out of "needs attention"; a
-  // new inbound message on a thread we were waiting on brings it back.
-  const reopenToAttention =
-    existing?.status === "waiting" &&
-    !!lastInbound &&
-    existing.last_classified_message_id !== newestMessageId;
-  const status: ThreadStatus | undefined = reopenToAttention ? "needs_attention" : undefined;
+  // A reply we already sent moved this thread out of "waiting"; a new
+  // inbound message on a thread we were waiting on brings it back to
+  // needing a human look. AI classification below may refine this further.
+  const reopenToReview = existing?.status === "waiting" && !!lastInbound && existing.last_classified_message_id !== newestMessageId;
+  const status: CaseStatus | undefined = reopenToReview ? "needs_review" : undefined;
 
   const threadRow = {
     gmail_thread_id: fetched.gmailThreadId,
@@ -59,6 +60,8 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
     last_outbound_at: lastOutbound?.sentAt ?? null,
     snippet: fetched.snippet,
     ...(status ? { status } : {}),
+    // New threads only — never override an existing case's category/status default.
+    ...(existing ? {} : { category: "other" as const }),
   };
 
   const { data: thread, error: threadError } = existing
@@ -93,6 +96,18 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
     await admin.from("email_messages").upsert(messageRows, { onConflict: "gmail_message_id" });
   }
 
+  // Rule-based ingestion decision only needs to run once per thread (on
+  // first sight) unless the sender changes, which it won't for a thread.
+  if (!existing) {
+    const ingestion = await decideIngestion({ sender: threadRow.sender, subject: fetched.subject });
+    if (ingestion.suppressed) {
+      await admin.from("email_threads").update({ suppressed: true }).eq("id", thread.id);
+      return; // Suppressed threads are never classified further.
+    }
+  } else if (existing.suppressed) {
+    return; // Stays suppressed once decided — no reclassification churn.
+  }
+
   const alreadyClassified =
     existing?.last_classified_message_id === newestMessageId && existing?.classification_version === CLASSIFICATION_VERSION;
 
@@ -110,19 +125,27 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
       })),
     });
 
+    if (!result.should_create_case) {
+      await admin
+        .from("email_threads")
+        .update({ suppressed: true, classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
+        .eq("id", thread.id);
+      return;
+    }
+
     await admin
       .from("email_threads")
       .update({
         category: result.category,
-        action: result.action,
+        issue_type: result.issue_type,
         // Never overwrite a manual reassignment with a low-confidence guess.
         owner_id: existing?.owner_id ?? result.owner,
         priority: result.priority,
+        status: result.status,
         ai_summary: result.summary,
         ai_confidence: result.confidence,
-        suggested_task_title: result.suggested_task_title,
+        suggested_next_action: result.suggested_next_action,
         follow_up_at: result.suggested_follow_up_date,
-        status: result.action === "ignore" ? "done" : status ?? "needs_attention",
         classification_version: CLASSIFICATION_VERSION,
         last_classified_message_id: newestMessageId,
       })
@@ -206,4 +229,21 @@ export async function runIncrementalSync(): Promise<SyncResult> {
   await admin.from("gmail_integration").update({ last_synced_at: new Date().toISOString(), last_history_id: historyId }).eq("id", integration.id);
 
   return { threadsProcessed: processed, errors };
+}
+
+/** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */
+export async function archiveStaleResolvedCases(): Promise<number> {
+  const admin = createAdminClient();
+  const cutoff = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const { data, error } = await admin
+    .from("email_threads")
+    .update({ status: "archived", archived_at: new Date().toISOString() })
+    .eq("status", "resolved")
+    .lt("resolved_at", cutoff)
+    .select("id");
+  if (error) {
+    console.error("[sync] archival failed", error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
 }

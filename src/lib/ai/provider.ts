@@ -11,29 +11,23 @@ import { CLASSIFICATION_RULES, DEFAULT_ROUTING } from "./rules";
 
 // Bump when the prompt/logic changes meaningfully enough that existing
 // classifications should be considered stale (see src/lib/ai/rules.ts).
-export const CLASSIFICATION_VERSION = 1;
+export const CLASSIFICATION_VERSION = 2;
 
-const CATEGORIES = [
-  "customer",
-  "artist",
-  "developer",
-  "supplier",
-  "internal",
-  "system",
-  "noise",
-] as const;
-
-const ACTIONS = ["reply", "task", "reply_task", "waiting", "fyi", "ignore"] as const;
-const OWNERS = ["adam", "eszter", "kurator"] as const;
-const PRIORITIES = ["low", "normal", "high", "critical"] as const;
+const CATEGORIES = ["customer", "artist", "developer", "supplier", "other"] as const;
+const STATUSES = ["needs_reply", "needs_review", "in_progress", "waiting"] as const;
+const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+const OWNERS = ["adam", "eszter"] as const;
 
 const ClassificationSchema = z.object({
+  /** False for newsletters/spam/routine no-reply notifications with no required action — never becomes an active case. */
+  should_create_case: z.boolean(),
   category: z.enum(CATEGORIES),
-  action: z.enum(ACTIONS),
-  owner: z.enum(OWNERS).nullable(),
+  issue_type: z.string().nullable(),
+  status: z.enum(STATUSES),
   priority: z.enum(PRIORITIES),
+  owner: z.enum(OWNERS).nullable(),
   summary: z.string(),
-  suggested_task_title: z.string().nullable(),
+  suggested_next_action: z.string().nullable(),
   suggested_follow_up_date: z.string().nullable(),
   confidence: z.number().min(0).max(1),
 });
@@ -73,7 +67,9 @@ function conversationText(thread: ThreadForAI): string {
     .join("\n\n---\n\n");
 }
 
-const CLASSIFY_SYSTEM_PROMPT = `You triage the shared Artbridge inbox (info@artbridge.hu) for a small art business (Ádám and Eszter). Decide, from the actual content, whether a thread needs attention and from whom — never from sender/domain alone.
+const CLASSIFY_SYSTEM_PROMPT = `You triage the shared Artbridge inbox (info@artbridge.hu) for a small art business (Ádám and Eszter). For each thread, decide whether it needs an active case at all, then classify it — always from the actual content, never from sender/domain alone.
+
+should_create_case = false for newsletters, spam, phishing, irrelevant promotions, and routine no-reply/automated notifications that require no action. When genuinely uncertain whether something matters, set should_create_case = true with category "other" and status "needs_review" rather than discarding it — never silently drop something that might be important.
 
 Business rules:
 ${CLASSIFICATION_RULES}
@@ -81,7 +77,11 @@ ${CLASSIFICATION_RULES}
 Default routing (content, not just sender, decides which of these applies):
 ${DEFAULT_ROUTING}
 
-Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Be concise: 1-2 sentences. Only suggest a task title when action is "task" or "reply_task". Only suggest a follow-up date when action is "waiting". When genuinely unsure about the owner, return owner: null rather than guessing.`;
+issue_type: for category "customer", pick one of damaged_product, wrong_product, missing_item, delivery_problem, delivery_status, order_change, cancellation, return, refund, product_question, payment_problem, other. For other categories, a short free-text label or null.
+
+status: needs_reply (external party is waiting on us), needs_review (something needs a human decision but isn't simply "reply"), in_progress (actively being worked, not just waiting for a reply), or waiting (we're waiting on an external party or a follow-up date — only set suggested_follow_up_date in that case).
+
+Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Be concise: 1-2 sentences. When genuinely unsure about the owner, return owner: null rather than guessing.`;
 
 /** Classifies a thread. Throws if the AI provider call fails — callers decide how to handle that (e.g. leave status as-is and retry later). */
 export async function classifyThread(thread: ThreadForAI): Promise<ClassificationResult> {
@@ -96,28 +96,32 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
         input_schema: {
           type: "object",
           properties: {
+            should_create_case: { type: "boolean" },
             category: { type: "string", enum: CATEGORIES as unknown as string[] },
-            action: { type: "string", enum: ACTIONS as unknown as string[] },
+            issue_type: { type: ["string", "null"] },
+            status: { type: "string", enum: STATUSES as unknown as string[] },
+            priority: { type: "string", enum: PRIORITIES as unknown as string[] },
             owner: {
               type: ["string", "null"],
               enum: [...OWNERS, null] as unknown as string[],
             },
-            priority: { type: "string", enum: PRIORITIES as unknown as string[] },
             summary: { type: "string" },
-            suggested_task_title: { type: ["string", "null"] },
+            suggested_next_action: { type: ["string", "null"] },
             suggested_follow_up_date: {
               type: ["string", "null"],
-              description: "YYYY-MM-DD, only when action is 'waiting'",
+              description: "YYYY-MM-DD, only when status is 'waiting'",
             },
             confidence: { type: "number", minimum: 0, maximum: 1 },
           },
           required: [
+            "should_create_case",
             "category",
-            "action",
-            "owner",
+            "issue_type",
+            "status",
             "priority",
+            "owner",
             "summary",
-            "suggested_task_title",
+            "suggested_next_action",
             "suggested_follow_up_date",
             "confidence",
           ],

@@ -1,9 +1,12 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { getCurrentProfile } from "@/lib/dal";
 import { getEmailMessages, getEmailThreadById } from "@/lib/queries-inbox";
 import { getProfiles } from "@/lib/queries";
 import { getGmailConnectionStatus } from "@/lib/gmail/status";
+import { getShopifyConnectionStatus } from "@/lib/shopify/status";
+import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import { TicketHeader } from "@/components/communication/ticket-header";
 import { TicketMessages } from "@/components/communication/ticket-messages";
 import { ReplyComposer } from "@/components/communication/reply-composer";
@@ -15,14 +18,21 @@ export default async function ThreadDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [thread, messages, profiles, gmailStatus] = await Promise.all([
+  const profile = await getCurrentProfile();
+  if (profile.role === "kurator") redirect("/");
+
+  const [thread, messages, profiles, gmailStatus, shopifyStatus] = await Promise.all([
     getEmailThreadById(id),
     getEmailMessages(id),
     getProfiles(),
     getGmailConnectionStatus(),
+    getShopifyConnectionStatus(),
   ]);
 
   if (!thread) notFound();
+
+  const shopifyMatch =
+    shopifyStatus.connected && thread.sender ? await findShopifyCustomerByEmail(thread.sender).catch(() => null) : null;
 
   return (
     <div className="grid grid-cols-1 gap-6 pt-6 lg:grid-cols-[1fr_300px]">
@@ -41,6 +51,11 @@ export default async function ThreadDetailPage({
           <div className="rounded-xl border border-[#eeeeee] bg-[#fafafa] p-3">
             <p className="text-[12px] font-semibold uppercase tracking-wide text-[#9aa0a8]">AI summary</p>
             <p className="mt-1 text-[13.5px] text-[#3d4451]">{thread.ai_summary}</p>
+            {thread.suggested_next_action && (
+              <p className="mt-2 text-[13px] text-[#5a616c]">
+                <span className="font-medium">Suggested next action:</span> {thread.suggested_next_action}
+              </p>
+            )}
           </div>
         )}
 
@@ -49,7 +64,7 @@ export default async function ThreadDetailPage({
         <ReplyComposer threadId={thread.id} gmailConnected={gmailStatus.connected} />
       </div>
 
-      <TicketSidebar thread={thread} profiles={profiles} />
+      <TicketSidebar thread={thread} profiles={profiles} shopifyMatch={shopifyMatch} shopifyConnected={shopifyStatus.connected} />
     </div>
   );
 }

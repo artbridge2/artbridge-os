@@ -1,6 +1,6 @@
 import "server-only";
 import { getEmailThreads } from "@/lib/queries-inbox";
-import { ACTION_LABELS, type TaskPriority } from "@/lib/types";
+import { CASE_STATUS_LABELS, type TaskPriority } from "@/lib/types";
 
 /**
  * A source-agnostic "needs your attention" row for Home. Derived at query
@@ -22,19 +22,15 @@ export interface AttentionItem {
 }
 
 async function getCommunicationAttentionItems(ownerId: string): Promise<AttentionItem[]> {
-  const threads = await getEmailThreads({ status: "needs_attention", ownerId });
+  const threads = await getEmailThreads({ activeOnly: true, ownerId });
   return threads.map((t) => ({
     source_type: "communication",
     source_id: t.id,
     owner_id: t.owner_id,
     title: t.subject || t.sender || "(no subject)",
     summary: t.ai_summary,
-    priority: t.priority,
-    attention_reason: t.draft_reply
-      ? "AI reply ready for review"
-      : t.action
-        ? ACTION_LABELS[t.action]
-        : "Needs attention",
+    priority: t.priority === "urgent" ? "critical" : t.priority,
+    attention_reason: t.draft_reply ? "AI reply ready for review" : CASE_STATUS_LABELS[t.status],
     href: `/communication/${t.id}`,
     created_at: t.last_message_at ?? t.created_at,
   }));

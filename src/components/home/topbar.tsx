@@ -1,7 +1,8 @@
-import { Search, Bell, ChevronDown } from "lucide-react";
-import { ROLE_LABELS, type Role } from "@/lib/types";
+import { Search, ChevronDown } from "lucide-react";
+import { NotificationsBell } from "@/components/notifications-bell";
+import { ROLE_LABELS, type Notification, type Role } from "@/lib/types";
 
-export function Topbar({ role }: { role: Role }) {
+export function Topbar({ role, notifications }: { role: Role; notifications: Notification[] }) {
   const initial = ROLE_LABELS[role].charAt(0);
 
   return (
@@ -11,13 +12,7 @@ export function Topbar({ role }: { role: Role }) {
         <span className="text-[14px] text-[#9aa0a8]">Search anything...</span>
       </div>
 
-      <button
-        type="button"
-        className="relative flex size-10 shrink-0 items-center justify-center rounded-full text-[#3d4451] hover:bg-[#f4f4f4]"
-      >
-        <Bell className="size-5" />
-        <span className="absolute right-2.5 top-2.5 size-2 rounded-full bg-[#f4494d]" />
-      </button>
+      <NotificationsBell notifications={notifications} />
 
       <button type="button" className="flex shrink-0 items-center gap-2 rounded-full pl-0.5 pr-2">
         <span className="flex size-9 items-center justify-center rounded-full bg-[#f6cfc7] text-[13px] font-semibold text-[#8a3b2b]">
