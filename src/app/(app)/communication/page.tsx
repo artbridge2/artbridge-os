@@ -53,7 +53,7 @@ export default async function CommunicationPage({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-5xl space-y-6 pt-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold tracking-tight">Communication</h1>
       </div>

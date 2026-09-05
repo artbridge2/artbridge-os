@@ -18,7 +18,7 @@ export default async function TaskDetailPage({
   if (!task) notFound();
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6 pt-6">
       <Link
         href="/tasks"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

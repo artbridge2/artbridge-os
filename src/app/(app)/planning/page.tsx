@@ -27,7 +27,7 @@ export default async function PlanningPage({
   const offset = Number(params.offset ?? 0) || 0;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-5xl space-y-6 pt-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold tracking-tight">Planning</h1>
         <div className="flex items-center gap-1 rounded-md border border-border p-0.5">

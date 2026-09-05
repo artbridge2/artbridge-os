@@ -24,7 +24,7 @@ export default async function ThreadDetailPage({
   if (!thread) notFound();
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6 pt-6">
       <Link
         href="/communication"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

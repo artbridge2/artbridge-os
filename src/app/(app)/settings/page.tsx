@@ -33,7 +33,7 @@ export default async function SettingsPage({
     typeof params.gmail === "string" ? GMAIL_STATUS_MESSAGES[params.gmail] : undefined;
 
   return (
-    <div className="max-w-md space-y-8">
+    <div className="max-w-md space-y-8 pt-6">
       <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
 
       <section className="space-y-2">
