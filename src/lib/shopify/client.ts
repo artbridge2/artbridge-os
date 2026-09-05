@@ -3,8 +3,9 @@ import crypto from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Read-only on purpose — Communication only ever displays order/customer
-// context, it never writes to Shopify.
-export const SHOPIFY_SCOPES = ["read_orders", "read_customers"];
+// context, it never writes to Shopify. Must match the Admin API scopes
+// configured on the Shopify app itself (Dev Dashboard > API access).
+export const SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_products", "read_content"];
 
 const API_VERSION = "2024-10";
 
