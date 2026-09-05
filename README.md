@@ -30,7 +30,8 @@ Töltsd ki a `.env.local`-t:
 
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — a Supabase projektből
 - `SUPABASE_SERVICE_ROLE_KEY` — csak a seed scripthez kell, soha nem kerül a böngészőbe
-- `SEED_ADAM_EMAIL`, `SEED_ESZTER_EMAIL`, `SEED_KURATOR_EMAIL` — a 3 valós Artbridge email cím
+- `SEED_ADAM_EMAIL` / `SEED_ADAM_PASSWORD` (és Eszter/Kurátor megfelelői) — a 3 valós Artbridge
+  email cím + egy-egy jelszó, amivel majd be tudnak lépni
 
 ### 4. Userek és induló recurring taskok seedelése
 
@@ -39,9 +40,10 @@ npm install
 npm run seed
 ```
 
-Ez létrehozza a 3 Supabase Auth usert (jelszó nélkül — a belépés magic linkkel megy),
-a hozzájuk tartozó `profiles` sorokat, és a spec szerinti 13 induló recurring taskot. A script
-újrafuttatható: emailt és title+owner párost ellenőriz, nem duplikál.
+Ez létrehozza a 3 Supabase Auth usert a megadott jelszóval, a hozzájuk tartozó `profiles`
+sorokat, és a spec szerinti 13 induló recurring taskot. A script újrafuttatható: emailt és
+title+owner párost ellenőriz, nem duplikál — egy `SEED_*_PASSWORD` megadásával viszont bármikor
+lecserélhető/visszaállítható egy meglévő user jelszava is.
 
 > A "Weekly planning" és "Monthly planning" (Közös) taskoknak a spec nem rendelt explicit
 > felelőst — az üzleti szabály (minden tasknak egy primary ownerje van) miatt alapértelmezésben
@@ -53,8 +55,8 @@ a hozzájuk tartozó `profiles` sorokat, és a spec szerinti 13 induló recurrin
 npm run dev
 ```
 
-Nyisd meg a [http://localhost:3000](http://localhost:3000) címet, lépj be a seedelt email
-egyikével — a Supabase elküld egy magic linket.
+Nyisd meg a [http://localhost:3000](http://localhost:3000) címet, lépj be a seedelt email +
+jelszó párossal.
 
 ## Deploy Vercelre
 
@@ -63,14 +65,15 @@ egyikével — a Supabase elküld egy magic linket.
 3. Állítsd be ugyanazokat a környezeti változókat, mint a `.env.local`-ban (a `SUPABASE_SERVICE_ROLE_KEY`
    csak akkor kell, ha a seedet Vercelről is futtatnád — production seedeléshez inkább helyi
    géppel, a production Supabase projekt felé futtasd le).
-4. Állítsd be a `NEXT_PUBLIC_SITE_URL`-t a végleges Vercel domainre, és ugyanezt add hozzá a
-   Supabase **Authentication → URL Configuration → Redirect URLs** listájához
-   (`https://<domain>/auth/callback`), különben a magic link nem fog visszairányítani.
+4. Állítsd be a `NEXT_PUBLIC_SITE_URL`-t a végleges Vercel domainre.
+5. `vercel.json` egy napi Gmail-sync cron jobot definiál — Hobby csomagon csak napi 1x futó
+   cron engedélyezett, ha ennél sűrűbbre írod át, a deploy build-time hibával elutasítja.
 
 ## Architektúra jegyzetek
 
-- **Auth**: Supabase magic link (`@supabase/ssr`), a session-t a `src/proxy.ts` frissíti minden
-  requesten (Next.js 16-ban a `middleware` átnevezve `proxy`-ra).
+- **Auth**: Supabase email+jelszó (`@supabase/ssr`), a session-t a `src/middleware.ts` frissíti
+  minden requesten (Next.js 16-ban a `middleware` konvenció átnevezve `proxy`-ra — a fájlnév
+  maradt a régi, mert egyes build platformok még nem ismerik fel az újat).
 - **Recurring engine** (`src/lib/recurring.ts`): egy task teljesítésekor pontosan egy következő
   occurrence jön létre — nincs cron, nincs végtelen jövőbeli másolat.
 - **Area lista** külön táblában (`areas`), hogy a Settings oldalról bővíthető legyen kód nélkül.

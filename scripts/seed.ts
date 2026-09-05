@@ -4,6 +4,8 @@
  * Creates the 3 Supabase Auth users + profiles (Ádám, Eszter, Kurátor) and
  * the starting recurring tasks from the product spec. Safe to re-run: users
  * and recurring roots are matched by email / title+owner before inserting.
+ * Re-running with a SEED_*_PASSWORD set also resets that user's password —
+ * handy for setting/rotating passwords without touching the Supabase UI.
  *
  * Usage:
  *   1. Run supabase/migrations/0001_init.sql against your Supabase project.
@@ -28,10 +30,10 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-const USERS: { role: Role; fullName: string; envVar: string }[] = [
-  { role: "adam", fullName: "Ádám", envVar: "SEED_ADAM_EMAIL" },
-  { role: "eszter", fullName: "Eszter", envVar: "SEED_ESZTER_EMAIL" },
-  { role: "kurator", fullName: "Kurátor", envVar: "SEED_KURATOR_EMAIL" },
+const USERS: { role: Role; fullName: string; envVar: string; passwordEnvVar: string }[] = [
+  { role: "adam", fullName: "Ádám", envVar: "SEED_ADAM_EMAIL", passwordEnvVar: "SEED_ADAM_PASSWORD" },
+  { role: "eszter", fullName: "Eszter", envVar: "SEED_ESZTER_EMAIL", passwordEnvVar: "SEED_ESZTER_PASSWORD" },
+  { role: "kurator", fullName: "Kurátor", envVar: "SEED_KURATOR_EMAIL", passwordEnvVar: "SEED_KURATOR_PASSWORD" },
 ];
 
 interface SeedTask {
@@ -169,15 +171,27 @@ async function main() {
       continue;
     }
 
+    const password = process.env[u.passwordEnvVar];
+
     let userId: string | undefined;
     const { data: existing } = await supabase.auth.admin.listUsers();
     const found = existing.users.find((usr) => usr.email?.toLowerCase() === email.toLowerCase());
 
     if (found) {
       userId = found.id;
+      if (password) {
+        const { error } = await supabase.auth.admin.updateUserById(userId, { password });
+        if (error) console.error(`Nem sikerült frissíteni a jelszót (${email}):`, error.message);
+        else console.log(`Jelszó frissítve: ${email}`);
+      }
     } else {
+      if (!password) {
+        console.error(`Hiányzik a ${u.passwordEnvVar} env változó — kihagyva: ${u.fullName}`);
+        continue;
+      }
       const { data, error } = await supabase.auth.admin.createUser({
         email,
+        password,
         email_confirm: true,
       });
       if (error || !data.user) {

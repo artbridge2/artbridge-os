@@ -7,7 +7,7 @@ export default function LoginPage() {
         <div className="space-y-1 text-center">
           <h1 className="text-xl font-semibold tracking-tight">Artbridge OS</h1>
           <p className="text-sm text-muted-foreground">
-            Belépés email címmel — jelszó nem kell.
+            Belépés email címmel és jelszóval.
           </p>
         </div>
         <LoginForm />

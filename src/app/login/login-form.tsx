@@ -1,27 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
-import { sendMagicLink, type SendMagicLinkState } from "@/actions/auth";
+import { login, type LoginState } from "@/actions/auth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
 export function LoginForm() {
-  const [state, action, pending] = useActionState<SendMagicLinkState, FormData>(
-    sendMagicLink,
-    undefined
-  );
-
-  if (state?.sent) {
-    return (
-      <div className="space-y-2 text-center">
-        <p className="text-sm font-medium">Elküldtük a belépési linket.</p>
-        <p className="text-sm text-muted-foreground">
-          Nézd meg az email fiókod, és kattints a linkre a belépéshez.
-        </p>
-      </div>
-    );
-  }
+  const [state, action, pending] = useActionState<LoginState, FormData>(login, undefined);
 
   return (
     <form action={action} className="space-y-4">
@@ -36,9 +22,13 @@ export function LoginForm() {
           required
         />
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="password">Jelszó</Label>
+        <Input id="password" name="password" type="password" required />
+      </div>
       {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
       <Button type="submit" className="w-full" disabled={pending}>
-        {pending ? "Küldés..." : "Küldj belépési linket"}
+        {pending ? "Belépés..." : "Bejelentkezés"}
       </Button>
     </form>
   );

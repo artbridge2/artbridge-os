@@ -1,42 +1,29 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export type SendMagicLinkState = { error?: string; sent?: boolean } | undefined;
+export type LoginState = { error?: string } | undefined;
 
-async function siteUrl() {
-  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
-  const h = await headers();
-  const host = h.get("host");
-  const proto = host?.startsWith("localhost") ? "http" : "https";
-  return `${proto}://${host}`;
-}
-
-export async function sendMagicLink(
-  _prevState: SendMagicLinkState,
+export async function login(
+  _prevState: LoginState,
   formData: FormData
-): Promise<SendMagicLinkState> {
+): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
 
-  if (!email || !email.includes("@")) {
-    return { error: "Adj meg egy érvényes email címet." };
+  if (!email || !password) {
+    return { error: "Add meg az email címed és a jelszavad." };
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: `${await siteUrl()}/auth/callback`,
-    },
-  });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    return { error: "Nem sikerült elküldeni a belépési linket. Próbáld újra." };
+    return { error: "Hibás email cím vagy jelszó." };
   }
 
-  return { sent: true };
+  redirect("/");
 }
 
 export async function signOut() {
