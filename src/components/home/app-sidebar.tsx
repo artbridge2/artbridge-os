@@ -144,8 +144,8 @@ export function AppSidebar() {
               src="/sidebar-promo.png"
               alt=""
               fill
+              unoptimized
               className="object-cover"
-              sizes="220px"
             />
           </div>
           <div className="space-y-1.5 px-4 py-4">

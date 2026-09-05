@@ -21,8 +21,8 @@ export function EditorialBanner({
           src="/banner-photo.png"
           alt=""
           fill
+          unoptimized
           className="object-cover"
-          sizes="600px"
         />
       </div>
       <div className={`${playfair.className} absolute left-10 top-1/2 -translate-y-1/2 text-[26px] leading-[1.35] text-[#12181f]`}>
