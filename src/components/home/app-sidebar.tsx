@@ -86,14 +86,14 @@ function SubNavRow({ href, label, count }: { href: string; label: string; count?
 export function AppSidebar({
   communicationCounts,
 }: {
-  communicationCounts?: Partial<Record<EmailCategory, number>>;
+  communicationCounts?: { total: number; byCategory: Partial<Record<EmailCategory, number>> };
 }) {
   const pathname = usePathname();
   const [marketingOpen, setMarketingOpen] = useState(true);
   const [communicationOpen, setCommunicationOpen] = useState(pathname.startsWith("/communication"));
 
-  const counts = communicationCounts ?? {};
-  const communicationTotal = COMMUNICATION_CATEGORY_GROUPS.reduce((sum, cat) => sum + (counts[cat] ?? 0), 0);
+  const counts = communicationCounts?.byCategory ?? {};
+  const communicationTotal = communicationCounts?.total ?? 0;
 
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-[#eeeeee] bg-white">

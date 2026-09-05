@@ -4,6 +4,17 @@ import type { CaseStatus, EmailCategory, EmailMessage, EmailThreadWithRelations 
 
 const THREAD_SELECT = `*, owner:profiles!email_threads_owner_id_fkey(id, full_name, role, email)`;
 
+/**
+ * Excludes noise/ignore — but NOT-yet-classified threads (category/action
+ * still null, e.g. freshly synced before AI classification has run) must
+ * stay visible. `.neq()` alone would silently drop them: in SQL,
+ * `null <> 'noise'` evaluates to unknown, not true, so a plain `.neq()`
+ * filters out every unclassified row along with actual noise.
+ */
+function excludeNoise<T extends { or: (filters: string) => T }>(query: T): T {
+  return query.or("category.is.null,category.neq.noise").or("action.is.null,action.neq.ignore");
+}
+
 export interface CommunicationFilters {
   category?: string;
   /** Fine-grained display status (splits "needs_attention" into reply vs. review). */
@@ -19,7 +30,7 @@ export async function getEmailThreads(filters: CommunicationFilters = {}): Promi
   let query = supabase.from("email_threads").select(THREAD_SELECT).is("deleted_at", null);
 
   if (!filters.category) {
-    query = query.neq("category", "noise").neq("action", "ignore");
+    query = excludeNoise(query);
   }
 
   switch (filters.caseStatus) {
@@ -64,24 +75,26 @@ export async function getEmailMessages(threadId: string): Promise<EmailMessage[]
   return (data ?? []) as EmailMessage[];
 }
 
-/** Active (non-resolved, non-noise) case count per category — drives the tab bar and sidebar submenu badges. */
-export async function getCommunicationCategoryCounts(): Promise<Partial<Record<EmailCategory, number>>> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("email_threads")
-    .select("category")
-    .is("deleted_at", null)
-    .neq("status", "done")
-    .neq("category", "noise")
-    .neq("action", "ignore");
+export interface CommunicationCategoryCounts {
+  /** All active (non-resolved, non-noise) cases, including ones not yet AI-classified — the honest "All" total. */
+  total: number;
+  byCategory: Partial<Record<EmailCategory, number>>;
+}
 
-  const counts: Partial<Record<EmailCategory, number>> = {};
+/** Active (non-resolved, non-noise) case counts — drives the tab bar and sidebar submenu badges. */
+export async function getCommunicationCategoryCounts(): Promise<CommunicationCategoryCounts> {
+  const supabase = await createClient();
+  const { data } = await excludeNoise(
+    supabase.from("email_threads").select("category").is("deleted_at", null).neq("status", "done")
+  );
+
+  const byCategory: Partial<Record<EmailCategory, number>> = {};
   for (const row of data ?? []) {
     const category = row.category as EmailCategory | null;
     if (!category) continue;
-    counts[category] = (counts[category] ?? 0) + 1;
+    byCategory[category] = (byCategory[category] ?? 0) + 1;
   }
-  return counts;
+  return { total: data?.length ?? 0, byCategory };
 }
 
 export interface QuickFilterCounts {
@@ -94,12 +107,7 @@ export interface QuickFilterCounts {
 export async function getQuickFilterCounts(): Promise<QuickFilterCounts> {
   const supabase = await createClient();
   const base = () =>
-    supabase
-      .from("email_threads")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .neq("category", "noise")
-      .neq("action", "ignore");
+    excludeNoise(supabase.from("email_threads").select("id", { count: "exact", head: true }).is("deleted_at", null));
 
   const [needsReply, needsReview, waiting, resolved] = await Promise.all([
     base().eq("status", "needs_attention").in("action", ["reply", "reply_task"]),
@@ -142,19 +150,12 @@ export async function getCommunicationStats(days = 30): Promise<CommunicationSta
   const priorStart = new Date(now - 2 * days * 86_400_000).toISOString();
 
   const [newCurrent, newPrior, resolvedCurrent, resolvedPrior, responseCurrent, responsePrior] = await Promise.all([
-    supabase
-      .from("email_threads")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .neq("category", "noise")
-      .neq("action", "ignore")
-      .gte("created_at", periodStart),
-    supabase
-      .from("email_threads")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .neq("category", "noise")
-      .neq("action", "ignore")
+    excludeNoise(
+      supabase.from("email_threads").select("id", { count: "exact", head: true }).is("deleted_at", null)
+    ).gte("created_at", periodStart),
+    excludeNoise(
+      supabase.from("email_threads").select("id", { count: "exact", head: true }).is("deleted_at", null)
+    )
       .gte("created_at", priorStart)
       .lt("created_at", periodStart),
     supabase

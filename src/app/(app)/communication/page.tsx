@@ -37,8 +37,6 @@ export default async function CommunicationPage({
     getProfiles(),
     getGmailConnectionStatus(),
   ]);
-
-  const allActiveCount = Object.values(categoryCounts).reduce((a, b) => a + (b ?? 0), 0);
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
@@ -76,7 +74,7 @@ export default async function CommunicationPage({
               !category ? "bg-[#12181f] text-white" : "text-[#5a616c] hover:bg-[#f4f4f4]"
             )}
           >
-            All <span className="opacity-80">{allActiveCount}</span>
+            All <span className="opacity-80">{categoryCounts.total}</span>
           </Link>
           {COMMUNICATION_CATEGORY_GROUPS.map((cat) => (
             <Link
@@ -87,7 +85,7 @@ export default async function CommunicationPage({
                 category === cat ? "bg-[#12181f] text-white" : "text-[#5a616c] hover:bg-[#f4f4f4]"
               )}
             >
-              {CATEGORY_LABELS[cat]} <span className="opacity-80">{categoryCounts[cat] ?? 0}</span>
+              {CATEGORY_LABELS[cat]} <span className="opacity-80">{categoryCounts.byCategory[cat] ?? 0}</span>
             </Link>
           ))}
         </div>
