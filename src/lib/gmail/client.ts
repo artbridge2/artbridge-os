@@ -4,10 +4,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { plainTextFromHtml, sanitizeEmailHtml } from "./sanitize";
 
 // Least-privilege on purpose: we track state (status/owner/priority) in our
-// own DB, not Gmail labels, so we never need gmail.modify.
+// own DB, not Gmail labels, so we never need gmail.modify. Calendar is
+// read-only too — Home only ever links out to the real Google Calendar
+// event, it never creates/edits events.
 export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/calendar.readonly",
 ];
 
 function redirectUri(): string {
@@ -34,26 +37,13 @@ export function getConsentUrl(state: string): string {
   });
 }
 
-export async function exchangeCodeForTokens(code: string) {
-  const { tokens } = await oauthClient().getToken(code);
-  return tokens;
-}
-
-/** The Gmail address these tokens belong to — used right after the OAuth exchange, before anything is stored. */
-export async function getEmailForTokens(tokens: {
-  access_token?: string | null;
-  refresh_token?: string | null;
-}): Promise<string> {
-  const auth = oauthClient();
-  auth.setCredentials(tokens);
-  const gmail = google.gmail({ version: "v1", auth });
-  const { data } = await gmail.users.getProfile({ userId: "me" });
-  if (!data.emailAddress) throw new Error("Gmail did not return an email address");
-  return data.emailAddress;
-}
-
-/** Loads the stored refresh token and returns an authorized Gmail client, keeping the cached access token fresh in the DB as googleapis silently refreshes it. */
-async function getAuthorizedClient(): Promise<gmail_v1.Gmail> {
+/**
+ * Loads the stored refresh token and returns an authorized Google OAuth2
+ * client, keeping the cached access token fresh in the DB as googleapis
+ * silently refreshes it. Shared by Gmail and Calendar — same Google
+ * connection, different API surfaces.
+ */
+export async function getAuthorizedGoogleClient() {
   const admin = createAdminClient();
   const { data: integration, error } = await admin
     .from("gmail_integration")
@@ -84,6 +74,30 @@ async function getAuthorizedClient(): Promise<gmail_v1.Gmail> {
       .eq("id", integration.id);
   });
 
+  return { auth, scopes: integration.scopes as string[] };
+}
+
+export async function exchangeCodeForTokens(code: string) {
+  const { tokens } = await oauthClient().getToken(code);
+  return tokens;
+}
+
+/** The Gmail address these tokens belong to — used right after the OAuth exchange, before anything is stored. */
+export async function getEmailForTokens(tokens: {
+  access_token?: string | null;
+  refresh_token?: string | null;
+}): Promise<string> {
+  const auth = oauthClient();
+  auth.setCredentials(tokens);
+  const gmail = google.gmail({ version: "v1", auth });
+  const { data } = await gmail.users.getProfile({ userId: "me" });
+  if (!data.emailAddress) throw new Error("Gmail did not return an email address");
+  return data.emailAddress;
+}
+
+/** Authorized Gmail client, built from the shared Google connection. */
+async function getAuthorizedClient(): Promise<gmail_v1.Gmail> {
+  const { auth } = await getAuthorizedGoogleClient();
   return google.gmail({ version: "v1", auth });
 }
 
