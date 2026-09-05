@@ -16,10 +16,9 @@ export const CLASSIFICATION_VERSION = 1;
 const CATEGORIES = [
   "customer",
   "artist",
-  "development",
-  "finance_admin",
-  "supplier_logistics",
-  "marketing_partner",
+  "developer",
+  "supplier",
+  "internal",
   "system",
   "noise",
 ] as const;

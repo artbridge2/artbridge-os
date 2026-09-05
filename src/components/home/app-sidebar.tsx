@@ -17,6 +17,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CATEGORY_LABELS, COMMUNICATION_CATEGORY_GROUPS, type EmailCategory } from "@/lib/types";
 
 function Badge({ count }: { count: number }) {
   if (!count) return null;
@@ -82,9 +83,17 @@ function SubNavRow({ href, label, count }: { href: string; label: string; count?
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({
+  communicationCounts,
+}: {
+  communicationCounts?: Partial<Record<EmailCategory, number>>;
+}) {
   const pathname = usePathname();
   const [marketingOpen, setMarketingOpen] = useState(true);
+  const [communicationOpen, setCommunicationOpen] = useState(pathname.startsWith("/communication"));
+
+  const counts = communicationCounts ?? {};
+  const communicationTotal = COMMUNICATION_CATEGORY_GROUPS.reduce((sum, cat) => sum + (counts[cat] ?? 0), 0);
 
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-[#eeeeee] bg-white">
@@ -96,7 +105,28 @@ export function AppSidebar() {
       <nav className="flex flex-1 flex-col overflow-y-auto px-3">
         <div className="flex flex-col">
           <NavRow href="/" icon={Home} label="Home" active={pathname === "/"} />
-          <NavRow href="/communication" icon={MessageCircle} label="Communication" count={3} />
+          <button
+            type="button"
+            onClick={() => setCommunicationOpen((v) => !v)}
+            className="flex h-11 items-center gap-2.5 rounded-lg px-3 text-left text-[14px] font-normal text-[#3d4451] hover:bg-[#f4f4f4]"
+          >
+            <MessageCircle className="size-[18px] shrink-0 text-[#3d4451]" />
+            <span className="flex-1 truncate">Communication</span>
+            <Badge count={communicationTotal} />
+            {communicationOpen ? (
+              <ChevronUp className="size-3.5 text-[#9aa1ab]" />
+            ) : (
+              <ChevronDown className="size-3.5 text-[#9aa1ab]" />
+            )}
+          </button>
+          {communicationOpen && (
+            <div className="flex flex-col">
+              <SubNavRow href="/communication" label="Overview" />
+              {COMMUNICATION_CATEGORY_GROUPS.map((cat) => (
+                <SubNavRow key={cat} href={`/communication?category=${cat}`} label={CATEGORY_LABELS[cat]} count={counts[cat] ?? 0} />
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setMarketingOpen((v) => !v)}

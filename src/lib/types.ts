@@ -91,16 +91,20 @@ export const RECURRING_FREQ_LABELS: Record<RecurringFreq, string> = {
 export type EmailCategory =
   | "customer"
   | "artist"
-  | "development"
-  | "finance_admin"
-  | "supplier_logistics"
-  | "marketing_partner"
+  | "developer"
+  | "supplier"
+  | "internal"
   | "system"
   | "noise";
 
 export type EmailAction = "reply" | "task" | "reply_task" | "waiting" | "fyi" | "ignore";
 
 export type ThreadStatus = "needs_attention" | "waiting" | "done";
+
+/** Ticket #, e.g. "#4821" — a short human-friendly reference, not the UUID. */
+export function threadReference(thread: { created_at: string }): string {
+  return "#" + new Date(thread.created_at).getTime().toString().slice(-4);
+}
 
 export interface EmailThread {
   id: string;
@@ -117,6 +121,9 @@ export interface EmailThread {
   owner_id: string | null;
   priority: TaskPriority;
   status: ThreadStatus;
+  labels: string[];
+  resolved_at: string | null;
+  deleted_at: string | null;
   follow_up_at: string | null;
   ai_summary: string | null;
   ai_confidence: number | null;
@@ -140,6 +147,7 @@ export interface EmailMessage {
   sender: string | null;
   recipients: { name?: string; email: string }[];
   is_inbound: boolean;
+  is_internal_note: boolean;
   sanitized_body: string | null;
   sent_at: string | null;
   created_at: string;
@@ -148,22 +156,31 @@ export interface EmailMessage {
 export const CATEGORY_LABELS: Record<EmailCategory, string> = {
   customer: "Customers",
   artist: "Artists",
-  development: "Development",
-  finance_admin: "Finance & Admin",
-  supplier_logistics: "Suppliers",
-  marketing_partner: "Partners",
+  developer: "Developers",
+  supplier: "Suppliers",
+  internal: "Internal",
   system: "System",
   noise: "Noise",
 };
 
-/** The categories shown as their own row in Communication's breakdown — system/noise fold into "Other" instead. */
+/** Singular form for the ticket-detail category tag ("Customer", not "Customers"). */
+export const CATEGORY_LABELS_SINGULAR: Record<EmailCategory, string> = {
+  customer: "Customer",
+  artist: "Artist",
+  developer: "Developer",
+  supplier: "Supplier",
+  internal: "Internal",
+  system: "System",
+  noise: "Noise",
+};
+
+/** The categories shown as their own filter tab in Communication — system/noise are hidden by default. */
 export const COMMUNICATION_CATEGORY_GROUPS: EmailCategory[] = [
   "customer",
   "artist",
-  "development",
-  "marketing_partner",
-  "finance_admin",
-  "supplier_logistics",
+  "developer",
+  "supplier",
+  "internal",
 ];
 
 export const ACTION_LABELS: Record<EmailAction, string> = {
@@ -180,3 +197,25 @@ export const THREAD_STATUS_LABELS: Record<ThreadStatus, string> = {
   waiting: "Waiting",
   done: "Done",
 };
+
+// ---------------------------------------------------------------------------
+// Communication case status — a display-level status derived from
+// status+action rather than its own column, so "Needs reply" vs "Needs
+// review" doesn't require a schema change.
+// ---------------------------------------------------------------------------
+
+export type CaseStatus = "needs_reply" | "needs_review" | "waiting" | "resolved";
+
+export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {
+  needs_reply: "Needs reply",
+  needs_review: "Needs review",
+  waiting: "Waiting",
+  resolved: "Resolved",
+};
+
+export function deriveCaseStatus(thread: { status: ThreadStatus; action: EmailAction | null }): CaseStatus {
+  if (thread.status === "done") return "resolved";
+  if (thread.status === "waiting") return "waiting";
+  if (thread.action === "reply" || thread.action === "reply_task") return "needs_reply";
+  return "needs_review";
+}

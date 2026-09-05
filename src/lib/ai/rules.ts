@@ -22,15 +22,17 @@ export const CLASSIFICATION_RULES = `
 `.trim();
 
 export const DEFAULT_ROUTING = `
-- Customer inquiries/complaints -> Eszter
-- General artist communication -> Eszter (Curator once that role is active)
-- Technical artist issues (e.g. artwork upload, technical portfolio problems) -> Adam
-- Development / Trusted backend / Shopify technical issues -> Adam
-- Finance, accounting, admin -> Eszter
-- Supplier / procurement -> Adam by default
-- Marketing / partner / influencer -> judge by content: Eszter or Adam
-- System notifications -> no owner unless action is required, then Adam
-- Noise -> no owner
+- category=customer: shopping/order inquiries and complaints -> Eszter
+- category=artist: general artist communication -> Eszter (Curator once that
+  role is active); technical artist issues (artwork upload, portfolio
+  problems) -> Adam
+- category=developer: technical/backend/Shopify development issues -> Adam
+- category=supplier: supplier / procurement -> Adam by default
+- category=internal: finance, accounting, admin, marketing/partner
+  coordination and other internal-only threads -> judge by content: Eszter
+  or Adam
+- category=system: no owner unless action is required, then Adam
+- category=noise -> no owner
 
 When genuinely unsure, leave owner unassigned (owner = null) rather than
 guessing — do not assign an owner on low confidence.

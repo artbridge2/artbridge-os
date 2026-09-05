@@ -22,7 +22,7 @@ export interface AttentionItem {
 }
 
 async function getCommunicationAttentionItems(ownerId: string): Promise<AttentionItem[]> {
-  const threads = await getEmailThreads({ view: "attention", ownerId });
+  const threads = await getEmailThreads({ status: "needs_attention", ownerId });
   return threads.map((t) => ({
     source_type: "communication",
     source_id: t.id,

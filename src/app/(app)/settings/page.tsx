@@ -74,6 +74,17 @@ export default async function SettingsPage({
         )}
       </section>
 
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold">Shopify</h2>
+        <p className="text-sm text-muted-foreground">
+          Not connected. Order and customer context in Communication will stay hidden until an
+          admin adds Shopify Admin API credentials.
+        </p>
+        <Button size="sm" variant="outline" disabled>
+          Connect Shopify
+        </Button>
+      </section>
+
       <section className="space-y-3">
         <h2 className="text-sm font-semibold">Area-k</h2>
         <ul className="space-y-1 text-sm text-muted-foreground">

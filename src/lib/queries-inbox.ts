@@ -1,62 +1,56 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { EmailCategory, EmailMessage, EmailThreadWithRelations } from "@/lib/types";
+import type { CaseStatus, EmailCategory, EmailMessage, EmailThreadWithRelations } from "@/lib/types";
 
 const THREAD_SELECT = `*, owner:profiles!email_threads_owner_id_fkey(id, full_name, role, email)`;
 
-export type InboxView = "attention" | "waiting" | "fyi" | "all" | "noise";
-
-export interface InboxFilters {
-  view?: InboxView;
-  ownerId?: string;
+export interface CommunicationFilters {
   category?: string;
-  priority?: string;
+  /** Fine-grained display status (splits "needs_attention" into reply vs. review). */
+  caseStatus?: CaseStatus;
+  /** Raw column filter — use when you want everything still active, without the reply/review split (e.g. Home's attention feed). */
+  status?: "needs_attention" | "waiting" | "done";
+  ownerId?: string;
   search?: string;
 }
 
-export async function getEmailThreads(filters: InboxFilters = {}): Promise<EmailThreadWithRelations[]> {
+export async function getEmailThreads(filters: CommunicationFilters = {}): Promise<EmailThreadWithRelations[]> {
   const supabase = await createClient();
-  let query = supabase.from("email_threads").select(THREAD_SELECT);
+  let query = supabase.from("email_threads").select(THREAD_SELECT).is("deleted_at", null);
 
-  switch (filters.view) {
-    case "attention":
-      query = query
-        .eq("status", "needs_attention")
-        .in("action", ["reply", "task", "reply_task"]);
+  if (!filters.category) {
+    query = query.neq("category", "noise").neq("action", "ignore");
+  }
+
+  switch (filters.caseStatus) {
+    case "resolved":
+      query = query.eq("status", "done");
       break;
     case "waiting":
       query = query.eq("status", "waiting");
       break;
-    case "fyi":
-      query = query.eq("action", "fyi");
+    case "needs_reply":
+      query = query.eq("status", "needs_attention").in("action", ["reply", "reply_task"]);
       break;
-    case "noise":
-      query = query.or("action.eq.ignore,category.eq.noise");
-      break;
-    case "all":
+    case "needs_review":
+      query = query.eq("status", "needs_attention").not("action", "in", "(reply,reply_task)");
       break;
     default:
-      query = query
-        .eq("status", "needs_attention")
-        .in("action", ["reply", "task", "reply_task"]);
+      if (filters.status) query = query.eq("status", filters.status);
+      break;
   }
 
-  if (filters.view !== "noise" && filters.view !== "all") {
-    query = query.neq("action", "ignore").neq("category", "noise");
-  }
-
-  if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
   if (filters.category) query = query.eq("category", filters.category);
-  if (filters.priority) query = query.eq("priority", filters.priority);
-  if (filters.search) query = query.ilike("subject", `%${filters.search}%`);
+  if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
+  if (filters.search) query = query.or(`subject.ilike.%${filters.search}%,sender.ilike.%${filters.search}%`);
 
-  const { data } = await query.order("last_message_at", { ascending: false });
+  const { data } = await query.order("last_message_at", { ascending: false, nullsFirst: false });
   return (data ?? []) as unknown as EmailThreadWithRelations[];
 }
 
 export async function getEmailThreadById(id: string): Promise<EmailThreadWithRelations | null> {
   const supabase = await createClient();
-  const { data } = await supabase.from("email_threads").select(THREAD_SELECT).eq("id", id).single();
+  const { data } = await supabase.from("email_threads").select(THREAD_SELECT).eq("id", id).is("deleted_at", null).single();
   return (data as unknown as EmailThreadWithRelations) ?? null;
 }
 
@@ -70,53 +64,16 @@ export async function getEmailMessages(threadId: string): Promise<EmailMessage[]
   return (data ?? []) as EmailMessage[];
 }
 
-export interface InboxCounts {
-  attention: number;
-  waiting: number;
-  fyi: number;
-}
-
-/** Counts for the tab bar. `ownerId` narrows to "Mine" when provided. */
-export async function getInboxCounts(ownerId?: string): Promise<InboxCounts> {
-  const supabase = await createClient();
-
-  let attentionQuery = supabase
-    .from("email_threads")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "needs_attention")
-    .in("action", ["reply", "task", "reply_task"]);
-  let waitingQuery = supabase
-    .from("email_threads")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "waiting");
-  let fyiQuery = supabase
-    .from("email_threads")
-    .select("id", { count: "exact", head: true })
-    .eq("action", "fyi");
-
-  if (ownerId) {
-    attentionQuery = attentionQuery.eq("owner_id", ownerId);
-    waitingQuery = waitingQuery.eq("owner_id", ownerId);
-    fyiQuery = fyiQuery.eq("owner_id", ownerId);
-  }
-
-  const [attention, waiting, fyi] = await Promise.all([attentionQuery, waitingQuery, fyiQuery]);
-
-  return {
-    attention: attention.count ?? 0,
-    waiting: waiting.count ?? 0,
-    fyi: fyi.count ?? 0,
-  };
-}
-
-/** Category breakdown of the "needs attention" set — the counts row under the tabs. */
-export async function getCategoryCounts(): Promise<Partial<Record<EmailCategory, number>>> {
+/** Active (non-resolved, non-noise) case count per category — drives the tab bar and sidebar submenu badges. */
+export async function getCommunicationCategoryCounts(): Promise<Partial<Record<EmailCategory, number>>> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("email_threads")
     .select("category")
-    .eq("status", "needs_attention")
-    .in("action", ["reply", "task", "reply_task"]);
+    .is("deleted_at", null)
+    .neq("status", "done")
+    .neq("category", "noise")
+    .neq("action", "ignore");
 
   const counts: Partial<Record<EmailCategory, number>> = {};
   for (const row of data ?? []) {
@@ -125,4 +82,133 @@ export async function getCategoryCounts(): Promise<Partial<Record<EmailCategory,
     counts[category] = (counts[category] ?? 0) + 1;
   }
   return counts;
+}
+
+export interface QuickFilterCounts {
+  needs_reply: number;
+  needs_review: number;
+  waiting: number;
+  resolved: number;
+}
+
+export async function getQuickFilterCounts(): Promise<QuickFilterCounts> {
+  const supabase = await createClient();
+  const base = () =>
+    supabase
+      .from("email_threads")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .neq("category", "noise")
+      .neq("action", "ignore");
+
+  const [needsReply, needsReview, waiting, resolved] = await Promise.all([
+    base().eq("status", "needs_attention").in("action", ["reply", "reply_task"]),
+    base().eq("status", "needs_attention").not("action", "in", "(reply,reply_task)"),
+    base().eq("status", "waiting"),
+    base().eq("status", "done"),
+  ]);
+
+  return {
+    needs_reply: needsReply.count ?? 0,
+    needs_review: needsReview.count ?? 0,
+    waiting: waiting.count ?? 0,
+    resolved: resolved.count ?? 0,
+  };
+}
+
+export interface PeriodStat {
+  value: number;
+  /** Percent change vs. the prior period of equal length. Null when the prior period had no baseline to compare against. */
+  trendPercent: number | null;
+}
+
+export interface CommunicationStats {
+  newConversations: PeriodStat;
+  resolved: PeriodStat;
+  /** Average hours between an inbound message and Artbridge's next outbound reply, for threads that got a reply in the period. Null when no such thread exists in the period. */
+  avgResponseHours: { value: number | null; trendPercent: number | null };
+}
+
+function trend(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+/** Real conversation stats for the "Conversation stats" card — never hardcoded. */
+export async function getCommunicationStats(days = 30): Promise<CommunicationStats> {
+  const supabase = await createClient();
+  const now = Date.now();
+  const periodStart = new Date(now - days * 86_400_000).toISOString();
+  const priorStart = new Date(now - 2 * days * 86_400_000).toISOString();
+
+  const [newCurrent, newPrior, resolvedCurrent, resolvedPrior, responseCurrent, responsePrior] = await Promise.all([
+    supabase
+      .from("email_threads")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .neq("category", "noise")
+      .neq("action", "ignore")
+      .gte("created_at", periodStart),
+    supabase
+      .from("email_threads")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .neq("category", "noise")
+      .neq("action", "ignore")
+      .gte("created_at", priorStart)
+      .lt("created_at", periodStart),
+    supabase
+      .from("email_threads")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .gte("resolved_at", periodStart),
+    supabase
+      .from("email_threads")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .gte("resolved_at", priorStart)
+      .lt("resolved_at", periodStart),
+    supabase
+      .from("email_threads")
+      .select("last_inbound_at, last_outbound_at")
+      .is("deleted_at", null)
+      .not("last_inbound_at", "is", null)
+      .not("last_outbound_at", "is", null)
+      .gte("last_outbound_at", periodStart),
+    supabase
+      .from("email_threads")
+      .select("last_inbound_at, last_outbound_at")
+      .is("deleted_at", null)
+      .not("last_inbound_at", "is", null)
+      .not("last_outbound_at", "is", null)
+      .gte("last_outbound_at", priorStart)
+      .lt("last_outbound_at", periodStart),
+  ]);
+
+  function avgResponseHours(rows: { last_inbound_at: string | null; last_outbound_at: string | null }[] | null) {
+    const deltas = (rows ?? [])
+      .map((r) => new Date(r.last_outbound_at!).getTime() - new Date(r.last_inbound_at!).getTime())
+      .filter((ms) => ms > 0);
+    if (deltas.length === 0) return null;
+    return deltas.reduce((a, b) => a + b, 0) / deltas.length / 3_600_000;
+  }
+
+  const avgCurrent = avgResponseHours(responseCurrent.data);
+  const avgPrior = avgResponseHours(responsePrior.data);
+
+  return {
+    newConversations: {
+      value: newCurrent.count ?? 0,
+      trendPercent: trend(newCurrent.count ?? 0, newPrior.count ?? 0),
+    },
+    resolved: {
+      value: resolvedCurrent.count ?? 0,
+      trendPercent: trend(resolvedCurrent.count ?? 0, resolvedPrior.count ?? 0),
+    },
+    avgResponseHours: {
+      value: avgCurrent,
+      // Lower is better for response time, so invert the sign of the raw % change.
+      trendPercent: avgCurrent !== null && avgPrior !== null && avgPrior > 0 ? Math.round(((avgPrior - avgCurrent) / avgPrior) * 100) : null,
+    },
+  };
 }

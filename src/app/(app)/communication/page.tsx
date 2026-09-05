@@ -1,22 +1,21 @@
 import Link from "next/link";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
+import { getGmailConnectionStatus } from "@/lib/gmail/status";
 import {
-  getCategoryCounts,
+  getCommunicationCategoryCounts,
+  getCommunicationStats,
   getEmailThreads,
-  getInboxCounts,
-  type InboxView,
+  getQuickFilterCounts,
 } from "@/lib/queries-inbox";
-import { InboxFilters } from "@/components/inbox-filters";
-import { InboxCard } from "@/components/inbox-card";
-import { CATEGORY_LABELS, COMMUNICATION_CATEGORY_GROUPS } from "@/lib/types";
+import { ConversationRow } from "@/components/communication/conversation-row";
+import { StatsCard } from "@/components/communication/stats-card";
+import { QuickFiltersCard } from "@/components/communication/quick-filters-card";
+import { NewConversationDialog } from "@/components/communication/new-conversation-dialog";
+import { CATEGORY_LABELS, COMMUNICATION_CATEGORY_GROUPS, type CaseStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const TABS: { view: InboxView; label: string }[] = [
-  { view: "attention", label: "My Attention" },
-  { view: "waiting", label: "Waiting" },
-  { view: "fyi", label: "FYI" },
-];
+const CASE_STATUSES: CaseStatus[] = ["needs_reply", "needs_review", "waiting", "resolved"];
 
 export default async function CommunicationPage({
   searchParams,
@@ -26,87 +25,92 @@ export default async function CommunicationPage({
   const params = await searchParams;
   const profile = await getCurrentProfile();
 
-  const view = (typeof params.view === "string" ? params.view : "attention") as InboxView;
-  const owner = typeof params.owner === "string" ? params.owner : undefined;
   const category = typeof params.category === "string" ? params.category : undefined;
-  const priority = typeof params.priority === "string" ? params.priority : undefined;
+  const statusParam = typeof params.status === "string" ? (params.status as CaseStatus) : undefined;
+  const caseStatus = statusParam && CASE_STATUSES.includes(statusParam) ? statusParam : undefined;
 
-  const [threads, counts, categoryCounts, profiles] = await Promise.all([
-    getEmailThreads({ view, ownerId: owner, category, priority }),
-    getInboxCounts(),
-    getCategoryCounts(),
+  const [threads, categoryCounts, quickCounts, stats, profiles, gmailStatus] = await Promise.all([
+    getEmailThreads({ category, caseStatus }),
+    getCommunicationCategoryCounts(),
+    getQuickFilterCounts(),
+    getCommunicationStats(30),
     getProfiles(),
+    getGmailConnectionStatus(),
   ]);
 
-  const otherParams = new URLSearchParams();
-  if (owner) otherParams.set("owner", owner);
-  if (category) otherParams.set("category", category);
-  if (priority) otherParams.set("priority", priority);
-  const qs = otherParams.toString();
+  const allActiveCount = Object.values(categoryCounts).reduce((a, b) => a + (b ?? 0), 0);
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
-  const tabCount: Record<InboxView, number> = {
-    attention: counts.attention,
-    waiting: counts.waiting,
-    fyi: counts.fyi,
-    all: counts.attention + counts.waiting + counts.fyi,
-    noise: 0,
+  const tabHref = (cat?: string) => {
+    const qs = new URLSearchParams();
+    if (cat) qs.set("category", cat);
+    if (caseStatus) qs.set("status", caseStatus);
+    const s = qs.toString();
+    return `/communication${s ? `?${s}` : ""}`;
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 pt-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">Communication</h1>
-      </div>
+    <div className="grid grid-cols-1 gap-6 pt-6 lg:grid-cols-[1fr_300px]">
+      <div className="min-w-0 space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[13.5px] text-[#9aa0a8]">{today}</p>
+            <h1 className="mt-0.5 text-[26px] font-bold tracking-tight text-[#12181f]">Communication</h1>
+            <p className="mt-1 text-[14px] text-[#5a616c]">
+              Customer, artist, developer and supplier conversations.
+            </p>
+          </div>
+          <NewConversationDialog profiles={profiles} currentUserId={profile.id} gmailConnected={gmailStatus.connected} />
+        </div>
 
-      <div className="flex items-center gap-1 border-b border-border">
-        {TABS.map((t) => (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-[#eeeeee] pb-3">
           <Link
-            key={t.view}
-            href={`/communication?view=${t.view}${qs ? `&${qs}` : ""}`}
+            href={tabHref(undefined)}
             className={cn(
-              "border-b-2 px-3 py-2 text-sm",
-              view === t.view
-                ? "border-foreground font-medium"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13.5px] font-medium",
+              !category ? "bg-[#12181f] text-white" : "text-[#5a616c] hover:bg-[#f4f4f4]"
             )}
           >
-            {t.label} <span className="text-muted-foreground">{tabCount[t.view]}</span>
+            All <span className="opacity-80">{allActiveCount}</span>
           </Link>
-        ))}
+          {COMMUNICATION_CATEGORY_GROUPS.map((cat) => (
+            <Link
+              key={cat}
+              href={tabHref(cat)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13.5px] font-medium",
+                category === cat ? "bg-[#12181f] text-white" : "text-[#5a616c] hover:bg-[#f4f4f4]"
+              )}
+            >
+              {CATEGORY_LABELS[cat]} <span className="opacity-80">{categoryCounts[cat] ?? 0}</span>
+            </Link>
+          ))}
+        </div>
+
+        <p className="text-[13.5px] text-[#9aa0a8]">
+          {threads.length} conversation{threads.length === 1 ? "" : "s"}
+        </p>
+
+        <div className="space-y-2.5">
+          {threads.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-[#e4e4e4] py-10 text-center text-sm text-muted-foreground">
+              No conversations match this filter.
+            </p>
+          ) : (
+            threads.map((thread) => <ConversationRow key={thread.id} thread={thread} />)
+          )}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground">
-        {COMMUNICATION_CATEGORY_GROUPS.map((cat) => (
-          <Link
-            key={cat}
-            href={`/communication?view=attention&category=${cat}`}
-            className={cn("hover:text-foreground", category === cat && "font-medium text-foreground")}
-          >
-            {CATEGORY_LABELS[cat]} <span>{categoryCounts[cat] ?? 0}</span>
-          </Link>
-        ))}
+      <div className="space-y-4">
+        <StatsCard stats={stats} />
+        <QuickFiltersCard counts={quickCounts} active={caseStatus} />
       </div>
-
-      <InboxFilters profiles={profiles} currentUserId={profile.id} />
-
-      <div className="space-y-2">
-        {threads.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            Nincs a szűrésnek megfelelő ügy.
-          </p>
-        ) : (
-          threads.map((thread) => <InboxCard key={thread.id} thread={thread} />)
-        )}
-      </div>
-
-      {view !== "noise" && (
-        <Link
-          href={`/communication?view=noise${qs ? `&${qs}` : ""}`}
-          className="block text-center text-xs text-muted-foreground hover:text-foreground"
-        >
-          Noise / Ignore megtekintése
-        </Link>
-      )}
     </div>
   );
 }
