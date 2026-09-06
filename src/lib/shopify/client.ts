@@ -106,6 +106,9 @@ export async function shopifyAdminQuery<T>(query: string, variables?: Record<str
       "X-Shopify-Access-Token": integration.access_token,
     },
     body: JSON.stringify({ query, variables }),
+    // No default timeout on fetch — an unresponsive Shopify endpoint could
+    // otherwise hang a caller (e.g. Communication classification) indefinitely.
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) throw new Error(`Shopify Admin API error: ${res.status}`);

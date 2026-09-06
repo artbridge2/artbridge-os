@@ -56,7 +56,10 @@ export interface ThreadForAI {
 function client() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
-  return new Anthropic({ apiKey });
+  // The SDK's default timeout/retry behavior can let one slow or transiently
+  // failing call consume most of a serverless invocation's entire time
+  // budget on its own — cap it so a single thread can never blow the batch.
+  return new Anthropic({ apiKey, timeout: 20_000, maxRetries: 1 });
 }
 
 const CLASSIFY_MODEL = process.env.ANTHROPIC_CLASSIFY_MODEL || "claude-haiku-4-5-20251001";

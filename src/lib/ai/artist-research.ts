@@ -17,7 +17,10 @@ const EXTRACT_MODEL = process.env.ANTHROPIC_CLASSIFY_MODEL || "claude-haiku-4-5-
 function client() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
-  return new Anthropic({ apiKey });
+  // web_search-backed calls can legitimately take longer (multiple searches
+  // within one completion), but still need a hard ceiling so a stuck request
+  // can't hang indefinitely.
+  return new Anthropic({ apiKey, timeout: 45_000, maxRetries: 1 });
 }
 
 export function isResearchProviderConfigured(): boolean {
