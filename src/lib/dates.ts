@@ -3,6 +3,7 @@ import {
   addDays,
   addMonths,
   addWeeks,
+  addYears,
   endOfMonth,
   endOfWeek,
   format,
@@ -102,4 +103,4 @@ export function formatElapsedEn(sinceIso: string): string {
   return `${months} month${months === 1 ? "" : "s"} ago`;
 }
 
-export { addDays, addWeeks, addMonths, fromZonedTime };
+export { addDays, addWeeks, addMonths, addYears, fromZonedTime };

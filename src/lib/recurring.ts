@@ -1,4 +1,4 @@
-import { addDays, addMonths, addWeeks, isWeekday, nextWeekdayFrom } from "@/lib/dates";
+import { addDays, addMonths, addWeeks, addYears, isWeekday, nextWeekdayFrom } from "@/lib/dates";
 import { RECURRING_FREQ_LABELS, type RecurringRule } from "@/lib/types";
 
 const WEEKDAY_NAMES = ["V", "H", "K", "Sze", "Cs", "P", "Szo"];
@@ -62,6 +62,11 @@ export function computeNextDueDate(
     case "quarterly": {
       if (inclusive) return anchor;
       return addMonths(anchor, 3);
+    }
+
+    case "yearly": {
+      if (inclusive) return anchor;
+      return addYears(anchor, interval);
     }
   }
 }

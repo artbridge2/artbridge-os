@@ -4,7 +4,7 @@ export type TaskStatus = "todo" | "in_progress" | "completed";
 
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
 
-export type RecurringFreq = "daily" | "weekdays" | "weekly" | "monthly" | "quarterly";
+export type RecurringFreq = "daily" | "weekdays" | "weekly" | "monthly" | "quarterly" | "yearly";
 
 export interface RecurringRule {
   freq: RecurringFreq;
@@ -54,6 +54,8 @@ export interface Task extends TaskLinkedObject {
   due_time: string | null; // HH:MM
   recurring_rule: RecurringRule | null;
   recurring_parent_id: string | null;
+  recurring_end_date: string | null; // YYYY-MM-DD, null = no end
+  skipped_at: string | null;
   checklist: ChecklistItem[];
   created_by: string | null;
   created_at: string;
@@ -111,6 +113,7 @@ export const RECURRING_FREQ_LABELS: Record<RecurringFreq, string> = {
   weekly: "Hetente",
   monthly: "Havonta",
   quarterly: "Negyedévente",
+  yearly: "Évente",
 };
 
 // ---------------------------------------------------------------------------

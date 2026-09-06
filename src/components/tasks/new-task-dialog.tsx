@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { PRIORITY_LABELS, ROLE_LABELS, type Area, type Profile } from "@/lib/types";
+import { PRIORITY_LABELS, RECURRING_FREQ_LABELS, ROLE_LABELS, type Area, type Profile } from "@/lib/types";
 
 export function NewTaskDialog({
   profiles,
@@ -32,6 +32,7 @@ export function NewTaskDialog({
   triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [repeats, setRepeats] = useState(false);
   const [state, action, pending] = useActionState<TaskFormState, FormData>(createTask, undefined);
 
   return (
@@ -105,6 +106,29 @@ export function NewTaskDialog({
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={repeats} onChange={(e) => setRepeats(e.target.checked)} className="size-4 rounded border-input" />
+              Repeat
+            </label>
+            {repeats && (
+              <div className="grid grid-cols-2 gap-3 rounded-lg border border-[#eeeeee] bg-[#fafafa] p-2.5">
+                <div className="space-y-2">
+                  <Label htmlFor="recurring_freq">Frequency</Label>
+                  <select id="recurring_freq" name="recurring_freq" defaultValue="weekly" className="h-9 w-full rounded-md border border-input bg-white px-3 text-sm">
+                    {Object.entries(RECURRING_FREQ_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="recurring_end_date">Ends (optional)</Label>
+                  <Input id="recurring_end_date" name="recurring_end_date" type="date" className="bg-white" />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

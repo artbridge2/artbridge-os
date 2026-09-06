@@ -40,7 +40,9 @@ export interface TaskFilters {
 
 export async function getTasks(filters: TaskFilters = {}): Promise<TaskWithRelations[]> {
   const supabase = await createClient();
-  let query = supabase.from("tasks").select(TASK_SELECT);
+  // Skipped recurring occurrences never happened — they stay in the DB for
+  // series history/idempotency but never show in any active view.
+  let query = supabase.from("tasks").select(TASK_SELECT).is("skipped_at", null);
 
   if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
   if (filters.areaId) query = query.eq("area_id", filters.areaId);
@@ -73,6 +75,7 @@ export async function getTasksInDateRange(
     .gte("due_date", startDate)
     .lte("due_date", endDate)
     .neq("status", "completed")
+    .is("skipped_at", null)
     .order("due_date", { ascending: true });
   return (data ?? []) as unknown as TaskWithRelations[];
 }

@@ -41,10 +41,14 @@ export async function createTask(
   const priority = String(formData.get("priority") ?? "normal") as TaskPriority;
   const dueDate = String(formData.get("due_date") ?? "") || null;
   const description = String(formData.get("description") ?? "").trim() || null;
+  const recurringFreq = String(formData.get("recurring_freq") ?? "") || null;
+  const recurringEndDate = String(formData.get("recurring_end_date") ?? "") || null;
 
   if (!title || !ownerId) {
     return { error: "Title and assignee are required." };
   }
+
+  const recurringRule = recurringFreq ? { freq: recurringFreq } : null;
 
   const { data: task, error } = await supabase
     .from("tasks")
@@ -58,6 +62,8 @@ export async function createTask(
       description,
       status: "todo",
       created_by: me.id,
+      recurring_rule: recurringRule,
+      recurring_end_date: recurringRule ? recurringEndDate : null,
     })
     .select("id")
     .single();
@@ -135,6 +141,50 @@ export async function changePriority(id: string, priority: TaskPriority) {
 }
 
 /**
+ * Creates the single next occurrence for a recurring task that was just
+ * completed or skipped — never a backlog of future copies. Guards against
+ * duplicates (e.g. a double-submit) by checking no sibling already exists at
+ * the computed date, and honors an optional recurring_end_date by simply not
+ * generating past it (the series just quietly ends, series data stays intact).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function generateNextOccurrence(supabase: any, task: Record<string, any>) {
+  const rule = task.recurring_rule as RecurringRule | null;
+  if (!rule) return;
+
+  const anchor = task.due_date ? parseDateOnly(task.due_date) : parseDateOnly(todayInBudapest());
+  const nextDate = computeNextDueDate(rule, anchor, false);
+  const nextDateStr = formatDateOnly(nextDate);
+
+  if (task.recurring_end_date && nextDateStr > task.recurring_end_date) return;
+
+  const rootId = task.recurring_parent_id ?? task.id;
+
+  const { data: existing } = await supabase
+    .from("tasks")
+    .select("id")
+    .or(`id.eq.${rootId},recurring_parent_id.eq.${rootId}`)
+    .eq("due_date", nextDateStr)
+    .limit(1)
+    .maybeSingle();
+  if (existing) return;
+
+  await supabase.from("tasks").insert({
+    title: task.title,
+    description: task.description,
+    owner_id: task.owner_id,
+    area_id: task.area_id,
+    priority: task.priority,
+    status: "todo",
+    due_date: nextDateStr,
+    recurring_rule: rule,
+    recurring_parent_id: rootId,
+    recurring_end_date: task.recurring_end_date,
+    created_by: task.created_by,
+  });
+}
+
+/**
  * Marks a task Completed and, if it's recurring, creates exactly one follow-up
  * occurrence — never a backlog of future copies (see lib/recurring.ts).
  */
@@ -155,25 +205,26 @@ export async function completeTask(id: string) {
     .eq("id", id);
   await logTaskEvent(id, "completed", task.status, "completed");
 
-  const rule = task.recurring_rule as RecurringRule | null;
-  if (rule) {
-    const anchor = task.due_date ? parseDateOnly(task.due_date) : parseDateOnly(todayInBudapest());
-    const nextDate = computeNextDueDate(rule, anchor, false);
-    const rootId = task.recurring_parent_id ?? task.id;
+  await generateNextOccurrence(supabase, task);
 
-    await supabase.from("tasks").insert({
-      title: task.title,
-      description: task.description,
-      owner_id: task.owner_id,
-      area_id: task.area_id,
-      priority: task.priority,
-      status: "todo",
-      due_date: formatDateOnly(nextDate),
-      recurring_rule: rule,
-      recurring_parent_id: rootId,
-      created_by: task.created_by,
-    });
-  }
+  revalidateTaskViews();
+}
+
+/**
+ * Skips this one occurrence of a recurring task — it never happened, so it
+ * doesn't count as completed work, but it stays in the series' history
+ * (spec §13: "skip one occurrence" without breaking the series).
+ */
+export async function skipRecurringOccurrence(id: string) {
+  const supabase = await createClient();
+
+  const { data: task } = await supabase.from("tasks").select("*").eq("id", id).single();
+  if (!task || !task.recurring_rule) return;
+
+  await supabase.from("tasks").update({ skipped_at: new Date().toISOString() }).eq("id", id);
+  await logTaskEvent(id, "skipped", task.status, "skipped");
+
+  await generateNextOccurrence(supabase, task);
 
   revalidateTaskViews();
 }

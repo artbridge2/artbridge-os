@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Link2 } from "lucide-react";
 import { AutosaveIndicator } from "@/components/autosave-indicator";
-import { changeDueDate, changePriority, changeStatus, deleteTask, reassignTask, stopRecurrence } from "@/actions/tasks";
+import { changeDueDate, changePriority, changeStatus, deleteTask, reassignTask, skipRecurringOccurrence, stopRecurrence } from "@/actions/tasks";
 import { setTaskProject } from "@/actions/projects";
 import { PRIORITY_LABELS, ROLE_LABELS, STATUS_LABELS, type Profile, type TaskPriority, type TaskStatus, type TaskWithRelations } from "@/lib/types";
 
@@ -114,14 +114,27 @@ export function TaskSidebar({ task, profiles, projects }: { task: TaskWithRelati
           </div>
 
           {task.recurring_rule && (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => run(() => stopRecurrence(task.id))}
-              className="text-left text-[13px] font-medium text-[#e0353b] hover:underline"
-            >
-              Stop recurrence
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (!confirm("Skip this occurrence? It won't count as completed, and the next one will be created.")) return;
+                  run(() => skipRecurringOccurrence(task.id));
+                }}
+                className="text-left text-[13px] font-medium text-[#b8860b] hover:underline"
+              >
+                Skip this occurrence
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => run(() => stopRecurrence(task.id))}
+                className="text-left text-[13px] font-medium text-[#e0353b] hover:underline"
+              >
+                Stop recurrence
+              </button>
+            </div>
           )}
         </div>
       </SidebarCard>
