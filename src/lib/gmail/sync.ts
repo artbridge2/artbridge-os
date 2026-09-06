@@ -5,7 +5,6 @@ import {
   getThread,
   listChangedThreadIds,
   listRecentThreadIds,
-  listThreadIdsByQuery,
   type FetchedThread,
 } from "./client";
 import { classifyThread, extractEmail, generateReplyDraft, CLASSIFICATION_VERSION, type ClassificationResult, type ShopifyDraftContext, type ThreadForAI } from "@/lib/ai/provider";
@@ -305,7 +304,7 @@ async function getConnectedEmail(admin: Admin): Promise<string> {
  * single bad thread — logs and moves on so one malformed email doesn't stop
  * the whole sync.
  */
-export async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void> {
+async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void> {
   const newestMessageId = fetched.messages.at(-1)?.gmailMessageId ?? null;
   const lastInbound = [...fetched.messages].reverse().find((m) => m.isInbound);
   const lastOutbound = [...fetched.messages].reverse().find((m) => !m.isInbound);
@@ -732,159 +731,6 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
     remaining: remaining ?? 0,
     errorSamples: errorSamples.length > 0 ? errorSamples : undefined,
   };
-}
-
-/**
- * One-off reconciliation helper: (re)classifies an explicit list of Gmail
- * thread IDs regardless of their current classification_version/suppressed
- * state — used for the starred-thread calibration pass (Communications V2
- * spec point 5/6), not part of any ongoing scheduled path. Skips any thread
- * whose sender already matches the deterministic automated-sender/domain
- * heuristics: those are known junk and shouldn't even be read in for AI
- * review, per Ádám's explicit instruction.
- */
-export async function classifySpecificThreads(
-  gmailThreadIds: string[],
-  maxBudgetMs = 45_000,
-  maxToProcess = Infinity
-): Promise<{
-  processed: number;
-  skippedJunk: number;
-  skippedMissing: number;
-  skippedAlready: number;
-  errors: number;
-  errorSamples: string[];
-  timedOut: boolean;
-}> {
-  const admin = createAdminClient();
-  const startedAt = Date.now();
-  let processed = 0;
-  let skippedJunk = 0;
-  let skippedMissing = 0;
-  let skippedAlready = 0;
-  let errors = 0;
-  let timedOut = false;
-  const errorSamples: string[] = [];
-
-  for (const gmailThreadId of gmailThreadIds) {
-    if (Date.now() - startedAt > maxBudgetMs || processed >= maxToProcess) {
-      timedOut = true;
-      break;
-    }
-    try {
-      const { data: thread } = await admin
-        .from("email_threads")
-        .select(
-          "id, subject, participants, owner_id, sender, category_source, status_source, priority_source, classification_version"
-        )
-        .eq("gmail_thread_id", gmailThreadId)
-        .maybeSingle();
-
-      if (!thread) {
-        skippedMissing++;
-        continue;
-      }
-
-      // Already reclassified in a prior (timed-out) attempt at this same
-      // calibration pass — safe/cheap to retry the whole list without
-      // re-spending AI cost on ones already done.
-      if (thread.classification_version === CLASSIFICATION_VERSION) {
-        skippedAlready++;
-        continue;
-      }
-
-      const ingestion = await decideIngestion({ sender: thread.sender, subject: thread.subject });
-      if (ingestion.suppressed) {
-        skippedJunk++;
-        continue;
-      }
-
-      const { data: messages } = await admin
-        .from("email_messages")
-        .select("gmail_message_id, sender, sanitized_body, sent_at, is_inbound")
-        .eq("thread_id", thread.id)
-        .order("sent_at", { ascending: true });
-
-      if (!messages || messages.length === 0) {
-        skippedMissing++;
-        continue;
-      }
-
-      const participants = ((thread.participants as { email: string }[] | null) ?? []).map((p) => p.email);
-      const newestMessageId = messages.at(-1)?.gmail_message_id ?? null;
-
-      const threadForAI: ThreadForAI = {
-        subject: thread.subject,
-        participants,
-        messages: messages.map((m) => ({
-          sender: m.sender,
-          body: m.sanitized_body ?? "",
-          sentAt: m.sent_at,
-          isInbound: m.is_inbound,
-        })),
-      };
-      // A single AI call (or its Shopify-lookup round trip) occasionally
-      // hangs well past what's normal for one thread — seen live during
-      // this reconciliation pass. Race it against a hard per-thread timeout
-      // so one stuck thread can't burn the whole invocation's time budget
-      // and block every thread behind it in the list.
-      const result = await Promise.race([
-        classifyThread(threadForAI, thread.id),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("per-thread timeout (20s)")), 20_000)),
-      ]);
-
-      await applyClassification(
-        admin,
-        thread.id,
-        newestMessageId,
-        thread.owner_id,
-        result,
-        threadForAI,
-        thread.sender,
-        thread.category_source === "human",
-        thread.status_source === "human",
-        thread.priority_source === "human"
-      );
-      processed++;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[sync] specific-thread classification failed for", gmailThreadId, err);
-      if (errorSamples.length < 10) errorSamples.push(`${gmailThreadId}: ${message}`);
-      errors++;
-    }
-  }
-
-  return { processed, skippedJunk, skippedMissing, skippedAlready, errors, errorSamples, timedOut };
-}
-
-/**
- * One-off reconciliation helper: finds threads matching a raw Gmail search
- * query (e.g. a specific person's name) that may predate the initial sync
- * window and so never got imported at all, and imports+classifies them via
- * the normal upsertThread path. Used to backfill specific historical
- * applications Ádám named directly.
- */
-export async function importAndClassifyByGmailQuery(
-  query: string
-): Promise<{ found: string[]; imported: number; errors: string[] }> {
-  const admin = createAdminClient();
-  const myEmail = await getConnectedEmail(admin);
-  const threadIds = await listThreadIdsByQuery(query);
-  let imported = 0;
-  const errors: string[] = [];
-
-  for (const id of threadIds) {
-    try {
-      const fetched = await getThread(id, myEmail);
-      await upsertThread(admin, fetched);
-      imported++;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      errors.push(`${id}: ${message}`);
-    }
-  }
-
-  return { found: threadIds, imported, errors };
 }
 
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */
