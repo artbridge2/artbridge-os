@@ -822,7 +822,15 @@ export async function classifySpecificThreads(
           isInbound: m.is_inbound,
         })),
       };
-      const result = await classifyThread(threadForAI, thread.id);
+      // A single AI call (or its Shopify-lookup round trip) occasionally
+      // hangs well past what's normal for one thread — seen live during
+      // this reconciliation pass. Race it against a hard per-thread timeout
+      // so one stuck thread can't burn the whole invocation's time budget
+      // and block every thread behind it in the list.
+      const result = await Promise.race([
+        classifyThread(threadForAI, thread.id),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("per-thread timeout (20s)")), 20_000)),
+      ]);
 
       await applyClassification(
         admin,
