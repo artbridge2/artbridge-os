@@ -215,13 +215,18 @@ export async function listRecentThreadIds(days: number): Promise<string[]> {
  * signal — see the Settings → AI calibration notes for how this was used.
  */
 export async function listStarredThreadIds(): Promise<string[]> {
+  return listThreadIdsByQuery("is:starred");
+}
+
+/** Same one-time-calibration-only caveat as listStarredThreadIds — a raw Gmail search query, paginated. */
+export async function listThreadIdsByQuery(query: string): Promise<string[]> {
   const gmail = await getAuthorizedClient();
   const ids: string[] = [];
   let pageToken: string | undefined;
   do {
     const { data } = await gmail.users.threads.list({
       userId: "me",
-      q: "is:starred",
+      q: query,
       pageToken,
       maxResults: 100,
     });
