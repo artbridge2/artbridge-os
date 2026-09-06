@@ -9,6 +9,7 @@ import { TodayCard } from "@/components/home/today-card";
 import { TeamCard, type TeamMember } from "@/components/home/team-card";
 import { OperationalStats } from "@/components/home/operational-stats";
 import { getTodaysArtistQuote } from "@/lib/artist-quotes";
+import { GmailSyncButton } from "@/components/gmail-sync-button";
 import type { Ticket } from "@/components/home/ticket-row";
 import type { Profile } from "@/lib/types";
 
@@ -105,12 +106,15 @@ export default async function HomePage() {
     <div className="pt-6">
       <div className="grid grid-cols-[1fr_318px] gap-6">
         <div className="min-w-0 space-y-6">
-          <div>
-            <p className="text-[13.5px] text-[#9aa0a8]">{dateLabel}</p>
-            <h1 className="mt-1 text-[32px] font-extrabold tracking-tight text-[#12181f]">
-              {greeting()}, {viewedProfile.full_name}.
-            </h1>
-            <p className="mt-1 text-[15px] text-[#8a909a]">Here&apos;s what needs your attention today.</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[13.5px] text-[#9aa0a8]">{dateLabel}</p>
+              <h1 className="mt-1 text-[32px] font-extrabold tracking-tight text-[#12181f]">
+                {greeting()}, {viewedProfile.full_name}.
+              </h1>
+              <p className="mt-1 text-[15px] text-[#8a909a]">Here&apos;s what needs your attention today.</p>
+            </div>
+            <GmailSyncButton />
           </div>
 
           <OperationalStats stats={stats} />

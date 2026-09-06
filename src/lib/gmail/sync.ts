@@ -28,6 +28,20 @@ export async function resolveOwnerProfileId(admin: Admin, roleLabel: "adam" | "e
   return data?.id ?? null;
 }
 
+/** Configurable in Settings — below this, a classification never fully trusts itself (spec: confidence + Needs review). */
+async function getConfidenceThreshold(admin: Admin): Promise<number> {
+  const { data } = await admin.from("workspace_settings").select("classification_confidence_threshold").eq("id", true).single();
+  return data?.classification_confidence_threshold ?? 0.6;
+}
+
+/** "Display Name <email@domain.com>" -> "Display Name", falling back to the email/raw string when there's no display name. */
+function extractSenderName(raw: string | null): string | null {
+  if (!raw) return null;
+  const match = raw.match(/^"?([^"<]+)"?\s*<[^>]+>/);
+  const name = match?.[1]?.trim();
+  return name && name.length > 0 ? name : extractEmail(raw);
+}
+
 /** Best-effort Shopify context for draft generation — reuses the same customer the classifier already matched, never a fresh guess. Failure here must never block classification from being saved. */
 async function fetchShopifyDraftContext(senderRaw: string | null): Promise<ShopifyDraftContext | null> {
   if (!senderRaw) return null;
@@ -62,9 +76,19 @@ export async function applyClassification(
   result: ClassificationResult,
   threadForAI: ThreadForAI,
   senderRaw: string | null,
-  categoryLocked = false
+  categoryLocked = false,
+  statusLocked = false,
+  priorityLocked = false
 ): Promise<void> {
-  if (!result.should_create_case) {
+  const threshold = await getConfidenceThreshold(admin);
+  const lowConfidence = result.confidence < threshold;
+
+  // Confidence enforced in code, not just the prompt: a high-confidence
+  // "irrelevant" call is suppressed as before, but an UNCERTAIN one is never
+  // silently dropped — it's kept as a real case routed to the existing
+  // status='needs_review' queue so a human confirms instead of a message
+  // just disappearing.
+  if (!result.should_create_case && !lowConfidence) {
     const { error } = await admin
       .from("email_threads")
       .update({ suppressed: true, classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
@@ -88,10 +112,12 @@ export async function applyClassification(
 
   // The case genuinely needs a human reply — prepare the draft now instead of
   // making Ádám/Eszter click "Generate" every time they open it. Best-effort:
-  // a draft-generation failure must not lose the classification itself.
+  // a draft-generation failure must not lose the classification itself. Never
+  // for a low-confidence call — we're not confident enough to write a reply
+  // in this case's voice, let alone confident enough to auto-route it.
   let draftReply: string | null = null;
   let draftGeneratedAt: string | null = null;
-  if (result.status === "needs_reply") {
+  if (!lowConfidence && !statusLocked && result.status === "needs_reply") {
     try {
       const shopifyContext = result.shopify_customer_id ? await fetchShopifyDraftContext(senderRaw) : null;
       draftReply = await generateReplyDraft(threadForAI, shopifyContext, threadId);
@@ -101,14 +127,22 @@ export async function applyClassification(
     }
   }
 
+  // An uncertain classification never gets to pick a normal operational
+  // status for itself — it goes to the existing Needs review queue instead,
+  // same as any other case that needs a human decision.
+  const effectiveStatus = lowConfidence ? "needs_review" : result.status;
+
   const { error } = await admin
     .from("email_threads")
     .update({
+      suppressed: false,
+      suggested_artist_application: result.is_artist_application,
       ...(categoryLocked ? {} : { category: result.category }),
       issue_type: result.issue_type,
       owner_id: ownerId,
-      priority: result.priority,
-      status: result.status,
+      ...(priorityLocked ? {} : { priority: result.priority }),
+      ...(statusLocked ? {} : { status: effectiveStatus }),
+      ai_suggested_status: result.status,
       ai_summary: result.summary,
       ai_confidence: result.confidence,
       suggested_next_action: result.suggested_next_action,
@@ -124,6 +158,15 @@ export async function applyClassification(
     .eq("id", threadId);
   if (error) throw new Error(`classification update failed: ${error.message}`);
 
+  // Confident inbound artist application -> match or create the Artist
+  // record and move the real conversation there, rather than leaving it
+  // sitting in Communications as a mere category label (spec point 4).
+  if (!lowConfidence && result.is_artist_application) {
+    await routeArtistApplication(admin, threadId, threadForAI, senderRaw).catch((err) => {
+      console.error("[sync] artist application routing failed for thread", threadId, err);
+    });
+  }
+
   // A case just got a real owner for the first time — that person needs to
   // know it exists rather than discovering it by chance. Only on genuine
   // fresh assignment, never on every reclassification of an already-owned case.
@@ -136,6 +179,108 @@ export async function applyClassification(
       href: `/communication/${threadId}`,
     });
   }
+}
+
+/**
+ * Moves a Communication thread's real conversation onto an Artist record
+ * (existing match by email, or a freshly-created one) and suppresses the
+ * Communication case — the work now lives in Artists, not as a label on a
+ * case (spec point 4). Idempotent: if this thread is already linked to an
+ * artist_outreach_threads row (e.g. a re-classification pass, or the reply
+ * already came through the outreach path), this is a no-op.
+ */
+async function routeArtistApplication(admin: Admin, threadId: string, threadForAI: ThreadForAI, senderRaw: string | null): Promise<void> {
+  const { data: thread } = await admin.from("email_threads").select("gmail_thread_id, subject").eq("id", threadId).single();
+  if (!thread) return;
+
+  const { data: alreadyLinked } = await admin
+    .from("artist_outreach_threads")
+    .select("id")
+    .eq("gmail_thread_id", thread.gmail_thread_id)
+    .maybeSingle();
+  if (alreadyLinked) return;
+
+  const senderEmail = senderRaw ? extractEmail(senderRaw) : null;
+  if (!senderEmail) return;
+  const senderName = extractSenderName(senderRaw) ?? senderEmail;
+
+  const { data: existingArtist } = await admin.from("artists").select("id, status").eq("email", senderEmail).maybeSingle();
+
+  let artistId: string;
+  if (existingArtist) {
+    artistId = existingArtist.id;
+    if (existingArtist.status === "candidate" || existingArtist.status === "contacted") {
+      await admin.from("artists").update({ status: "in_conversation" }).eq("id", artistId);
+      await admin.from("artist_events").insert({ artist_id: artistId, event_type: "status_changed", from_value: existingArtist.status, to_value: "in_conversation" });
+    }
+  } else {
+    const { data: newArtist, error } = await admin
+      .from("artists")
+      .insert({ full_name: senderName, email: senderEmail, source: "applied", status: "in_conversation" })
+      .select("id")
+      .single();
+    if (error || !newArtist) {
+      console.error("[sync] failed to create artist from application", error?.message);
+      return;
+    }
+    artistId = newArtist.id;
+    await admin.from("artist_events").insert({ artist_id: artistId, event_type: "created_from_application", from_value: null, to_value: "in_conversation" });
+  }
+
+  await linkThreadToArtist(admin, threadId, thread.gmail_thread_id, artistId, thread.subject);
+
+  // Artist acquisition defaults to Ádám (matches DEFAULT_CATEGORY_OWNER_ROLE's
+  // artist->adam routing) — best-effort, must never break the routing itself.
+  const adamId = await resolveOwnerProfileId(admin, "adam");
+  if (adamId) {
+    await admin
+      .from("notifications")
+      .insert({
+        user_id: adamId,
+        type: "artist_application",
+        title: `${senderName} — new Artist application`,
+        body: threadForAI.subject ?? thread.subject,
+        href: `/artists/${artistId}`,
+      })
+      .then(
+        () => {},
+        () => {}
+      );
+  }
+}
+
+/** Copies a Communication thread's already-fetched messages onto a real artist_outreach_threads/messages pair, then suppresses the original case — future replies on this gmail_thread_id are picked up by upsertThread's existing outreach-thread check, same as an Artbridge-initiated conversation. */
+async function linkThreadToArtist(admin: Admin, emailThreadId: string, gmailThreadId: string, artistId: string, subject: string | null): Promise<void> {
+  const { data: outreachThread, error } = await admin
+    .from("artist_outreach_threads")
+    .insert({ artist_id: artistId, gmail_thread_id: gmailThreadId, subject, last_message_at: new Date().toISOString() })
+    .select("id")
+    .single();
+  if (error || !outreachThread) {
+    console.error("[sync] failed to create artist outreach thread for application", error?.message);
+    return;
+  }
+
+  const { data: messages } = await admin
+    .from("email_messages")
+    .select("gmail_message_id, sender, sanitized_body, is_inbound, sent_at")
+    .eq("thread_id", emailThreadId);
+
+  if (messages && messages.length > 0) {
+    await admin.from("artist_outreach_messages").upsert(
+      messages.map((m) => ({
+        thread_id: outreachThread.id,
+        gmail_message_id: m.gmail_message_id,
+        sender: m.sender,
+        sanitized_body: m.sanitized_body,
+        is_inbound: m.is_inbound,
+        sent_at: m.sent_at,
+      })),
+      { onConflict: "gmail_message_id", ignoreDuplicates: true }
+    );
+  }
+
+  await admin.from("email_threads").update({ suppressed: true }).eq("id", emailThreadId);
 }
 
 const MY_EMAIL_FALLBACK = "info@artbridge.hu";
@@ -178,7 +323,7 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
 
   const { data: existing } = await admin
     .from("email_threads")
-    .select("id, last_classified_message_id, status, owner_id, category, category_source, suppressed, classification_version")
+    .select("id, last_classified_message_id, status, owner_id, category, category_source, status_source, priority_source, suppressed, classification_version")
     .eq("gmail_thread_id", fetched.gmailThreadId)
     .maybeSingle();
 
@@ -272,7 +417,9 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
       result,
       threadForAI,
       threadRow.sender,
-      existing?.category_source === "human"
+      existing?.category_source === "human",
+      existing?.status_source === "human",
+      existing?.priority_source === "human"
     );
   } catch (err) {
     console.error("[sync] classification failed for", fetched.gmailThreadId, err);
@@ -395,6 +542,20 @@ export async function runInitialSync(days = 30): Promise<SyncResult> {
 }
 
 /** Incremental sync via Gmail historyId — call this from the cron route. */
+/**
+ * Checkpointed/resumable (spec: "batch feldolgozás -> progress mentés ->
+ * következő batch"). The old version only persisted last_history_id AFTER
+ * the whole loop finished, so a run that timed out partway through made
+ * literally zero permanent progress — the next run recomputed the same
+ * diff and could get stuck reprocessing the same early threads forever on
+ * a busy day. Now: capture "now" as the new checkpoint FIRST (safe because
+ * upsertThread is itself idempotent — reprocessing an already-ingested
+ * thread is a harmless no-op), then track exactly which threads from this
+ * pass actually finished in a small durable queue (gmail_sync_pending) so
+ * anything left over — timed out, or a transient per-thread error — is
+ * retried by the very next run (cron or manual "Sync now"), regardless of
+ * whether new Gmail history has arrived since.
+ */
 export async function runIncrementalSync(): Promise<SyncResult> {
   const startedAt = Date.now();
   const admin = createAdminClient();
@@ -417,22 +578,47 @@ export async function runIncrementalSync(): Promise<SyncResult> {
     return runInitialSync(30);
   }
 
+  const currentHistoryId = await getCurrentHistoryId();
+
+  const { data: pendingRows } = await admin.from("gmail_sync_pending").select("gmail_thread_id");
+  const pendingIds = (pendingRows ?? []).map((r) => r.gmail_thread_id);
+  const queue = [...new Set([...pendingIds, ...changedIds])];
+
+  // Advance the checkpoint before processing, not after — see doc comment above.
+  await admin
+    .from("gmail_integration")
+    .update({ last_synced_at: new Date().toISOString(), last_history_id: currentHistoryId })
+    .eq("id", integration.id);
+
   const myEmail = await getConnectedEmail(admin);
   let processed = 0;
   let errors = 0;
-  for (const id of changedIds) {
+  const budgetMs = 40_000; // leaves headroom under Vercel's 60s maxDuration for the backfill pass below
+  let i = 0;
+  for (; i < queue.length; i++) {
+    if (Date.now() - startedAt > budgetMs) break;
+    const id = queue[i]!;
     try {
       const fetched = await getThread(id, myEmail);
       await upsertThread(admin, fetched);
       processed++;
+      await admin.from("gmail_sync_pending").delete().eq("gmail_thread_id", id);
     } catch (err) {
       console.error("[sync] failed to fetch thread", id, err);
       errors++;
+      await admin.from("gmail_sync_pending").upsert({ gmail_thread_id: id }, { onConflict: "gmail_thread_id" });
     }
   }
-
-  const historyId = await getCurrentHistoryId();
-  await admin.from("gmail_integration").update({ last_synced_at: new Date().toISOString(), last_history_id: historyId }).eq("id", integration.id);
+  // Ran out of time before even reaching these — they must stay queued too.
+  const notReached = queue.slice(i);
+  if (notReached.length > 0) {
+    await admin
+      .from("gmail_sync_pending")
+      .upsert(
+        notReached.map((gmail_thread_id) => ({ gmail_thread_id })),
+        { onConflict: "gmail_thread_id", ignoreDuplicates: true }
+      );
+  }
 
   const remainingBudgetMs = 45_000 - (Date.now() - startedAt);
   const backfill = remainingBudgetMs > 5_000 ? await classifyBacklogBatch(remainingBudgetMs) : { processed: 0, errors: 0, remaining: 0 };
@@ -467,7 +653,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   // instead of risking a mid-call timeout that loses whatever didn't commit.
   const { data: threads } = await admin
     .from("email_threads")
-    .select("id, subject, participants, owner_id, sender, category_source")
+    .select("id, subject, participants, owner_id, sender, category_source, status_source, priority_source")
     .eq("suppressed", false)
     .neq("classification_version", CLASSIFICATION_VERSION)
     .order("created_at", { ascending: true })
@@ -511,7 +697,9 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
         result,
         threadForAI,
         thread.sender,
-        thread.category_source === "human"
+        thread.category_source === "human",
+        thread.status_source === "human",
+        thread.priority_source === "human"
       );
       processed++;
     } catch (err) {

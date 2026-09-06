@@ -215,7 +215,13 @@ export interface EmailThread {
   suggested_next_action: string | null;
   owner_id: string | null;
   priority: CasePriority;
+  priority_source: "ai" | "human";
   status: CaseStatus;
+  status_source: "ai" | "human";
+  /** Always the AI's own intended status, even when a low-confidence pass routed the case to needs_review instead — "Confirm" in the review queue applies this. */
+  ai_suggested_status: CaseStatus | null;
+  /** True when classification thinks this might be a first-time Artist application — shown as a hint in the review queue even below the auto-routing confidence bar. */
+  suggested_artist_application: boolean;
   /** Ingestion decided this shouldn't be an active case (newsletter, automated no-reply, ...). Never shown in normal queues. */
   suppressed: boolean;
   labels: string[];

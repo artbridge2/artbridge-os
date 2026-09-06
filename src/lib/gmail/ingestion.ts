@@ -15,7 +15,29 @@ export interface IngestionDecision {
  * explicitly says to avoid — when in doubt, let it through as a case.
  */
 const AUTOMATED_SENDER_PATTERN =
-  /^(no-?reply|do-?not-?reply|notifications?|updates?|newsletter|digest|mailer-?daemon|alerts?)@/i;
+  /^(no-?reply|do-?not-?reply|notifications?|updates?|newsletter|digest|mailer-?daemon|alerts?|bounces?|postmaster|automated|donotreply|no-reply-\w+)@/i;
+
+/**
+ * Sending infrastructure for transactional/marketing email platforms — these
+ * domains are ESP (email service provider) plumbing regardless of which
+ * business is using the platform, so matching on the domain itself is safe
+ * and business-agnostic (spec point 2: "Shopify/Klaviyo/Meta automatikus
+ * értesítések... más biztonsággal felismerhető automatizált levelek").
+ * Deliberately conservative — only well-known bulk/transactional-mail
+ * infrastructure, never a guess at a specific business's own domain.
+ */
+const AUTOMATED_SENDING_DOMAINS = [
+  /(^|\.)klaviyomail\.com$/i,
+  /(^|\.)e\.klaviyo\.com$/i,
+  /(^|\.)mail\.shopify\.com$/i,
+  /(^|\.)shopifyemail\.com$/i,
+  /(^|\.)facebookmail\.com$/i,
+  /(^|\.)mail\.instagram\.com$/i,
+  /(^|\.)mandrillapp\.com$/i,
+  /(^|\.)sendgrid\.net$/i,
+  /(^|\.)amazonses\.com$/i,
+  /(^|\.)sparkpostmail\.com$/i,
+];
 
 function extractEmail(raw: string | null): string | null {
   if (!raw) return null;
@@ -54,6 +76,10 @@ export async function decideIngestion(input: { sender: string | null; subject: s
 
   if (senderEmail && AUTOMATED_SENDER_PATTERN.test(senderEmail)) {
     return { suppressed: true, ruleMatched: false, reason: "heuristic:automated-sender" };
+  }
+
+  if (domain && AUTOMATED_SENDING_DOMAINS.some((pattern) => pattern.test(domain))) {
+    return { suppressed: true, ruleMatched: false, reason: "heuristic:automated-sending-domain" };
   }
 
   return { suppressed: false, ruleMatched: false, reason: "default:create" };

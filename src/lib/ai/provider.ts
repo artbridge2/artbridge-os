@@ -43,6 +43,8 @@ const ClassificationSchema = z.object({
   shopify_match_confidence: z.enum(["confirmed"]).nullable(),
   /** Concrete, case-specific actions only (e.g. "Replace damaged item", "Wait for customer reply") — empty when nothing genuinely useful, never filler. */
   next_actions: z.array(z.string()).default([]),
+  /** True only when this is genuinely someone applying/proposing to have their work sold via Artbridge for the first time — never for an existing artist's routine business email, order question, or general inquiry. Drives automatic Artist-record creation/routing, so it must be conservative. */
+  is_artist_application: z.boolean().default(false),
 });
 
 export type ClassificationResult = z.infer<typeof ClassificationSchema>;
@@ -203,6 +205,8 @@ issue_type: for category "customer", pick one of damaged_product, wrong_product,
 
 status: needs_reply (external party is waiting on us), needs_review (something needs a human decision but isn't simply "reply"), in_progress (actively being worked, not just waiting for a reply), or waiting (we're waiting on an external party or a follow-up date — only set suggested_follow_up_date in that case).
 
+is_artist_application: true ONLY when this is a genuine first-time proposal/application from someone wanting Artbridge to sell their art (portfolio links, a pitch to collaborate, "I'd like to apply" language) — this drives automatic Artist-record creation, so be conservative. False for an existing/known artist's routine correspondence (a delivery question, a commission update, general chat), even though category is still "artist". When genuinely unsure whether it's a real application, set confidence low rather than guessing is_artist_application true — a low-confidence thread is routed to a human review queue instead of being auto-created as an Artist.
+
 Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Cover: what the actual issue/topic is, what (if anything) has already been resolved or agreed, and what we're currently waiting on or need to decide — 2-4 sentences, not a single generic line. When genuinely unsure about the owner, return owner: null rather than guessing.
 
 next_actions: 0-4 short, concrete, case-specific actions inferred from THIS thread's actual content and status — e.g. "Replace damaged item", "Check order #1234 status", "Wait for customer to confirm size", "Hand off to Adam — technical issue". Never generic filler like "Follow up" with no basis, and never pad the list to look complete — an empty array is correct when nothing concrete is genuinely needed beyond a plain reply.
@@ -246,6 +250,7 @@ const CLASSIFY_TOOL: Anthropic.Tool = {
       shopify_order_id: { type: ["string", "null"], description: "Only from a real look_up_shopify_customer result" },
       shopify_match_confidence: { type: ["string", "null"], enum: ["confirmed", null] },
       next_actions: { type: "array", items: { type: "string" }, description: "0-4 concrete, case-specific actions — empty array when nothing genuine is needed" },
+      is_artist_application: { type: "boolean", description: "True only for a genuine first-time application/proposal to sell work via Artbridge — never for an existing artist's routine email" },
     },
     required: [
       "should_create_case",
@@ -262,6 +267,7 @@ const CLASSIFY_TOOL: Anthropic.Tool = {
       "shopify_order_id",
       "shopify_match_confidence",
       "next_actions",
+      "is_artist_application",
     ],
   },
 };

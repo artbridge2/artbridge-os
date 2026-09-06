@@ -38,11 +38,17 @@ async function logCaseEvent(threadId: string, eventType: string, fromValue: stri
   });
 }
 
+/**
+ * A human-driven status change marks status_source='human' (spec: separate
+ * human-owned operational state from AI-derived/refreshable fields) so a
+ * later reclassification's fresh status guess never silently overrides a
+ * deliberate human decision — see applyClassification's statusLocked check.
+ */
 export async function changeThreadStatus(threadId: string, status: CaseStatus) {
   const supabase = await createClient();
   const { data: before } = await supabase.from("email_threads").select("status").eq("id", threadId).single();
 
-  const update: Record<string, unknown> = { status };
+  const update: Record<string, unknown> = { status, status_source: "human" };
   if (status === "resolved") update.resolved_at = new Date().toISOString();
   if (status !== "resolved") update.resolved_at = null;
   if (status === "archived") update.archived_at = new Date().toISOString();
@@ -99,6 +105,23 @@ export async function restoreFromNotRelevant(threadId: string) {
   revalidateInboxViews();
 }
 
+/**
+ * Needs-review queue "Confirm" action — the AI's classification was
+ * substantively correct, it was only routed here for a confidence check.
+ * Applies the status the AI actually intended (ai_suggested_status) instead
+ * of guessing what "confirmed" should mean, and logs a positive signal the
+ * corrections digest can eventually read back too.
+ */
+export async function confirmClassification(threadId: string) {
+  const supabase = await createClient();
+  const { data: before } = await supabase.from("email_threads").select("ai_suggested_status, status_source").eq("id", threadId).single();
+  if (before?.status_source !== "human" && before?.ai_suggested_status) {
+    await supabase.from("email_threads").update({ status: before.ai_suggested_status }).eq("id", threadId);
+  }
+  await logCaseEvent(threadId, "classification_confirmed", null, null);
+  revalidateInboxViews();
+}
+
 export async function reassignThread(threadId: string, ownerId: string | null) {
   const supabase = await createClient();
   const { data: before } = await supabase.from("email_threads").select("owner_id, subject").eq("id", threadId).single();
@@ -125,7 +148,7 @@ export async function assignToMe(threadId: string) {
 
 export async function setPriority(threadId: string, priority: CasePriority) {
   const supabase = await createClient();
-  await supabase.from("email_threads").update({ priority }).eq("id", threadId);
+  await supabase.from("email_threads").update({ priority, priority_source: "human" }).eq("id", threadId);
   revalidateInboxViews();
 }
 
