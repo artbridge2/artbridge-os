@@ -128,6 +128,28 @@ export const getArtistAttentionItems = cache(async (ownerId: string): Promise<At
       needsHumanDecision: true,
     }));
 
+  // "Maybe later" revisit date due — surfaced through the normal Attention
+  // mechanism rather than a separate special workflow (spec §4).
+  const today = todayInBudapest();
+  for (const a of ownedArtists) {
+    if (a.status !== "maybe_later" || !a.revisit_date || a.revisit_date > today) continue;
+    items.push({
+      source_type: "artist" as const,
+      source_id: a.id,
+      owner_id: a.owner_id,
+      title: a.artist_name || a.full_name,
+      context: "Revisit date reached — was Maybe later",
+      priority: "normal" as TaskPriority,
+      due_at: null,
+      follow_up_at: a.revisit_date,
+      attention_reason: a.revisit_date < today ? "Revisit date passed" : "Revisit today",
+      href: `/artists/${a.id}`,
+      updated_at: a.updated_at,
+      overdue: a.revisit_date < today,
+      needsHumanDecision: true,
+    });
+  }
+
   // Application review is Lili's (Curator) primary responsibility — only surface
   // pending applications in the attention list of whoever is viewed as kurator.
   const viewedProfile = profiles.find((p) => p.id === ownerId);

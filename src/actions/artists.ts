@@ -7,11 +7,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { sendNewMessage, sendReply as sendGmailReply } from "@/lib/gmail/client";
-import { extractCandidates, generateOutreachDraft, researchCandidateContact, runResearchTurn, type CandidateExtraction } from "@/lib/ai/artist-research";
 import { findPossibleDuplicates, type DuplicateCandidateInput } from "@/lib/artists/duplicate-detection";
-import type { ArtistLink, ArtistStatus, FitAssessment } from "@/lib/types";
-
-const MAX_DEEP_DIVE_CANDIDATES = 5;
+import type { ArtistLink, ArtistStatus, FitAssessment, RejectionReason } from "@/lib/types";
 
 function revalidateArtistViews() {
   revalidatePath("/", "layout");
@@ -57,9 +54,11 @@ export interface CreateArtistInput {
   email?: string | null;
   website?: string | null;
   instagram?: string | null;
+  location?: string | null;
+  technique?: string | null;
   bio?: string | null;
   ownerId: string;
-  source: "direct" | "application" | "research";
+  source: "outbound" | "applied";
 }
 
 export async function createArtist(input: CreateArtistInput): Promise<string> {
@@ -74,6 +73,8 @@ export async function createArtist(input: CreateArtistInput): Promise<string> {
       email: input.email || null,
       website: input.website || null,
       instagram: input.instagram || null,
+      location: input.location || null,
+      technique: input.technique || null,
       bio: input.bio || null,
       source: input.source,
       status: "candidate",
@@ -104,7 +105,7 @@ export async function submitCreateArtist(_prev: CreateArtistFormState, formData:
     instagram: String(formData.get("instagram") ?? "").trim() || null,
     bio: String(formData.get("bio") ?? "").trim() || null,
     ownerId,
-    source: "direct",
+    source: "outbound",
   });
 
   revalidatePath("/artists");
@@ -115,6 +116,7 @@ export async function submitCreateArtist(_prev: CreateArtistFormState, formData:
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+/** Manual override — any status to any status, always available (spec §4/§5: authorized users can always pick a different status directly). */
 export async function setArtistStatus(artistId: string, status: ArtistStatus) {
   const supabase = await createClient();
   const { data: before } = await supabase.from("artists").select("status, owner_id, full_name").eq("id", artistId).single();
@@ -124,6 +126,65 @@ export async function setArtistStatus(artistId: string, status: ArtistStatus) {
   if (status === "maybe_later" && before?.owner_id) {
     await notifyUser(before.owner_id, "artist_status", "Candidate needs a decision", before.full_name, `/artists/${artistId}`);
   }
+  revalidateArtistViews();
+}
+
+/**
+ * "Maybe later" is a temporary pause, not a dead end (spec §4) — remembers
+ * the status to `Resume` back to. Rejection reuses the same "previous status"
+ * column for the same reason (spec §5's restore/reopen): an artist is only
+ * ever in one paused state at a time, so one column safely serves both.
+ */
+export async function setArtistMaybeLater(artistId: string, revisitDate?: string | null) {
+  const supabase = await createClient();
+  const { data: before } = await supabase.from("artists").select("status").eq("id", artistId).single();
+  if (!before || before.status === "maybe_later") return;
+  await supabase
+    .from("artists")
+    .update({ status: "maybe_later", maybe_later_previous_status: before.status, revisit_date: revisitDate || null })
+    .eq("id", artistId);
+  await logArtistEvent(artistId, "status_changed", before.status, "maybe_later");
+  revalidateArtistViews();
+}
+
+export async function resumeArtist(artistId: string) {
+  const supabase = await createClient();
+  const { data: before } = await supabase.from("artists").select("status, maybe_later_previous_status").eq("id", artistId).single();
+  if (!before) return;
+  const target = (before.maybe_later_previous_status as ArtistStatus | null) ?? "candidate";
+  await supabase.from("artists").update({ status: target, maybe_later_previous_status: null, revisit_date: null }).eq("id", artistId);
+  await logArtistEvent(artistId, "status_changed", before.status, target);
+  revalidateArtistViews();
+}
+
+/** Reachable from any stage (spec §5). Optional reason + note; never deletes the Artist. */
+export async function rejectArtist(artistId: string, reason: RejectionReason | null, note?: string) {
+  const supabase = await createClient();
+  const me = await getCurrentProfile();
+  const { data: before } = await supabase.from("artists").select("status, full_name").eq("id", artistId).single();
+  if (!before || before.status === "rejected") return;
+  await supabase
+    .from("artists")
+    .update({ status: "rejected", maybe_later_previous_status: before.status, rejection_reason: reason })
+    .eq("id", artistId);
+  await logArtistEvent(artistId, "status_changed", before.status, "rejected");
+  if (note?.trim()) {
+    await supabase.from("artist_comments").insert({ artist_id: artistId, author_id: me.id, body: note.trim() });
+  }
+  revalidateArtistViews();
+}
+
+/** Admin restore/reopen after Rejected (spec §5) — same "previous status" memory as Resume. */
+export async function restoreArtist(artistId: string) {
+  const supabase = await createClient();
+  const { data: before } = await supabase.from("artists").select("status, maybe_later_previous_status").eq("id", artistId).single();
+  if (!before) return;
+  const target = (before.maybe_later_previous_status as ArtistStatus | null) ?? "candidate";
+  await supabase
+    .from("artists")
+    .update({ status: target, maybe_later_previous_status: null, rejection_reason: null })
+    .eq("id", artistId);
+  await logArtistEvent(artistId, "status_changed", "rejected", target);
   revalidateArtistViews();
 }
 
@@ -212,12 +273,18 @@ export async function completeOnboardingStep(artistId: string, step: keyof typeo
   const patch: Record<string, unknown> = { [atField]: new Date().toISOString(), [byField]: me.id };
   if (step === "commission" && commissionTerms) patch.commission_terms = commissionTerms;
 
+  const { data: before } = await supabase.from("artists").select("status").eq("id", artistId).single();
+
   await supabase.from("artists").update(patch).eq("id", artistId);
   await logArtistEvent(artistId, "onboarding_step_completed", null, step);
 
-  if (step === "published") {
+  // Registration completion -> Registered; publishing completion -> Active artist (spec §2).
+  if (step === "registration" && before?.status !== "active") {
+    await supabase.from("artists").update({ status: "registered" }).eq("id", artistId);
+    await logArtistEvent(artistId, "status_changed", before?.status ?? null, "registered");
+  } else if (step === "published") {
     await supabase.from("artists").update({ status: "active" }).eq("id", artistId);
-    await logArtistEvent(artistId, "status_changed", "accepted", "active");
+    await logArtistEvent(artistId, "status_changed", before?.status ?? null, "active");
   }
   revalidateArtistViews();
 }
@@ -265,8 +332,9 @@ export async function reviewApplication(
         full_name: application.raw_name ?? "Unknown",
         email: application.raw_email,
         other_links: application.raw_links,
-        source: "application",
-        status: decision === "accepted" ? "accepted" : "maybe_later",
+        source: "applied",
+        // Accepted -> straight to In conversation, no Candidate/Contacted detour (spec §2): the artist already reached out.
+        status: decision === "accepted" ? "in_conversation" : "maybe_later",
         owner_id: input.ownerId ?? me.id,
         created_by: me.id,
       })
@@ -277,7 +345,7 @@ export async function reviewApplication(
   } else if (artistId) {
     await supabase
       .from("artists")
-      .update({ status: decision === "accepted" ? "accepted" : decision === "maybe_later" ? "maybe_later" : "rejected" })
+      .update({ status: decision === "accepted" ? "in_conversation" : decision === "maybe_later" ? "maybe_later" : "rejected" })
       .eq("id", artistId);
   }
 
@@ -293,254 +361,11 @@ export async function reviewApplication(
 }
 
 // ---------------------------------------------------------------------------
-// Research (spec §8-11)
+// Outreach — real send/reply mechanics only (AI drafting removed; the
+// dedicated Research/Outreach AI workflow was cut for cost/value reasons —
+// discovery now happens externally, see createArtist above). Uses the
+// shared Gmail connection, never Communication.
 // ---------------------------------------------------------------------------
-
-function toResultRow(sessionId: string, c: CandidateExtraction) {
-  return {
-    session_id: sessionId,
-    full_name: c.full_name,
-    artist_name: c.artist_name,
-    location: c.location,
-    bio: c.bio,
-    technique: c.technique,
-    website: c.website,
-    instagram: c.instagram,
-    email: c.email,
-    source_links: c.source_links.map((url) => ({ label: url, url })),
-    fit_assessment: c.fit_assessment,
-    fit_rationale: c.fit_rationale,
-  };
-}
-
-/** Deep-dive values win when present; otherwise fall back to the broad discovery pass. Never drops a field the broad pass already found. */
-function mergeDeepDive(shallow: CandidateExtraction, deep: CandidateExtraction | undefined): CandidateExtraction {
-  if (!deep) return shallow;
-  return {
-    full_name: deep.full_name || shallow.full_name,
-    artist_name: deep.artist_name ?? shallow.artist_name,
-    location: deep.location ?? shallow.location,
-    bio: deep.bio ?? shallow.bio,
-    technique: deep.technique ?? shallow.technique,
-    website: deep.website ?? shallow.website,
-    instagram: deep.instagram ?? shallow.instagram,
-    email: deep.email ?? shallow.email,
-    source_links: [...new Set([...shallow.source_links, ...deep.source_links])],
-    fit_assessment: deep.fit_assessment ?? shallow.fit_assessment,
-    fit_rationale: deep.fit_rationale ?? shallow.fit_rationale,
-  };
-}
-
-/**
- * One full discovery turn: broad web-search pass -> extract candidate names
- * -> drop ones already known (real artists DB or already surfaced in this
- * session) -> targeted per-candidate deep dive (parallel, bounded) for
- * contact info specifically -> persist. This is the actual multi-step
- * workflow — not a single completion hoping the model does all of it itself.
- */
-async function runDiscoveryTurn(sessionId: string, history: { role: "user" | "assistant"; content: string }[], message: string) {
-  const supabase = await createClient();
-
-  const reply = await runResearchTurn({ history, message, sessionId });
-  await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "assistant", content: reply });
-
-  const shallowCandidates = await extractCandidates(reply, sessionId).catch(() => []);
-  if (shallowCandidates.length === 0) return;
-
-  const { data: existingResults } = await supabase.from("artist_research_results").select("full_name").eq("session_id", sessionId);
-  const existingNames = new Set((existingResults ?? []).map((r) => r.full_name.toLowerCase()));
-
-  const newCandidates: CandidateExtraction[] = [];
-  const alreadyKnown: string[] = [];
-
-  for (const c of shallowCandidates) {
-    if (existingNames.has(c.full_name.toLowerCase())) {
-      alreadyKnown.push(c.full_name);
-      continue;
-    }
-    const duplicates = await findPossibleDuplicates({ fullName: c.full_name, email: c.email, instagram: c.instagram, website: c.website });
-    if (duplicates.length > 0) {
-      alreadyKnown.push(c.full_name);
-      continue;
-    }
-    newCandidates.push(c);
-  }
-
-  const toDeepDive = newCandidates.slice(0, MAX_DEEP_DIVE_CANDIDATES);
-  const skippedForBudget = newCandidates.slice(MAX_DEEP_DIVE_CANDIDATES);
-
-  const deepDived = await Promise.all(
-    toDeepDive.map(async (candidate) => {
-      try {
-        const text = await researchCandidateContact(candidate.full_name, candidate.bio ?? candidate.fit_rationale ?? "", sessionId);
-        const [deep] = await extractCandidates(text, sessionId);
-        return mergeDeepDive(candidate, deep);
-      } catch (err) {
-        console.error("[artists] deep-dive research failed for", candidate.full_name, err);
-        return candidate;
-      }
-    })
-  );
-
-  const finalCandidates = [...deepDived, ...skippedForBudget];
-  if (finalCandidates.length > 0) {
-    await supabase.from("artist_research_results").insert(finalCandidates.map((c) => toResultRow(sessionId, c)));
-  }
-
-  const summaryParts: string[] = [];
-  if (deepDived.length > 0) summaryParts.push(`Researched ${deepDived.length} new candidate${deepDived.length === 1 ? "" : "s"} in depth, including contact info where publicly available.`);
-  if (skippedForBudget.length > 0) summaryParts.push(`Found ${skippedForBudget.length} more candidate(s) but didn't deep-dive them yet this turn — ask to continue and I'll research them too.`);
-  if (alreadyKnown.length > 0) summaryParts.push(`Already known, not re-added: ${alreadyKnown.join(", ")}.`);
-  if (summaryParts.length > 0) {
-    await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "assistant", content: summaryParts.join(" ") });
-  }
-}
-
-export async function startResearchSession(brief: string): Promise<string> {
-  if (!brief.trim()) throw new Error("A research brief is required.");
-  const supabase = await createClient();
-  const me = await getCurrentProfile();
-
-  const { data: session, error } = await supabase
-    .from("artist_research_sessions")
-    .insert({ title: brief.slice(0, 80), brief, created_by: me.id })
-    .select("id")
-    .single();
-  if (error || !session) throw new Error("Failed to start research session");
-
-  await supabase.from("artist_research_messages").insert({ session_id: session.id, role: "user", content: brief });
-
-  try {
-    await runDiscoveryTurn(session.id, [], brief);
-  } catch (err) {
-    console.error("[artists] research turn failed", err);
-  }
-
-  revalidatePath(`/artists/research/${session.id}`);
-  return session.id as string;
-}
-
-export async function continueResearchSession(sessionId: string, message: string) {
-  if (!message.trim()) return;
-  const supabase = await createClient();
-
-  const { data: history } = await supabase
-    .from("artist_research_messages")
-    .select("role, content")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
-
-  await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "user", content: message });
-
-  try {
-    await runDiscoveryTurn(sessionId, (history ?? []) as { role: "user" | "assistant"; content: string }[], message);
-  } catch (err) {
-    console.error("[artists] research turn failed", err);
-    throw new Error("RESEARCH_PROVIDER_FAILED");
-  }
-
-  await supabase.from("artist_research_sessions").update({ updated_at: new Date().toISOString() }).eq("id", sessionId);
-  revalidatePath(`/artists/research/${sessionId}`);
-}
-
-/** Re-researches one existing result in place (not a new discovery turn) — the whole point is a deeper, targeted pass on a candidate already found. */
-export async function researchDeeper(sessionId: string, resultId: string) {
-  const supabase = await createClient();
-  const { data: result } = await supabase.from("artist_research_results").select("*").eq("id", resultId).single();
-  if (!result) return;
-
-  try {
-    const text = await researchCandidateContact(result.full_name, result.bio ?? result.fit_rationale ?? "", sessionId);
-    const [deep] = await extractCandidates(text, sessionId);
-
-    if (deep) {
-      const existingLinks = ((result.source_links as ArtistLink[] | null) ?? []).map((l) => l.url);
-      const mergedLinks = [...new Set([...existingLinks, ...deep.source_links])];
-      await supabase
-        .from("artist_research_results")
-        .update({
-          artist_name: deep.artist_name ?? result.artist_name,
-          location: deep.location ?? result.location,
-          bio: deep.bio ?? result.bio,
-          technique: deep.technique ?? result.technique,
-          website: deep.website ?? result.website,
-          instagram: deep.instagram ?? result.instagram,
-          email: deep.email ?? result.email,
-          source_links: mergedLinks.map((url) => ({ label: url, url })),
-          fit_assessment: deep.fit_assessment ?? result.fit_assessment,
-          fit_rationale: deep.fit_rationale ?? result.fit_rationale,
-        })
-        .eq("id", resultId);
-    }
-
-    await supabase.from("artist_research_messages").insert({
-      session_id: sessionId,
-      role: "assistant",
-      content: deep
-        ? `Did a deeper pass on ${result.full_name} — updated with anything new I found.`
-        : `Searched further for ${result.full_name} but didn't find additional verified details.`,
-    });
-  } catch (err) {
-    console.error("[artists] researchDeeper failed", err);
-  }
-  revalidatePath(`/artists/research/${sessionId}`);
-}
-
-export async function dismissResult(resultId: string) {
-  const supabase = await createClient();
-  await supabase.from("artist_research_results").update({ state: "dismissed" }).eq("id", resultId);
-  revalidatePath("/artists/research");
-}
-
-export async function saveResultAsCandidate(resultId: string, ownerId: string, linkToArtistId?: string): Promise<string> {
-  const supabase = await createClient();
-  const me = await getCurrentProfile();
-  const { data: result } = await supabase.from("artist_research_results").select("*").eq("id", resultId).single();
-  if (!result) throw new Error("Research result not found");
-
-  let artistId = linkToArtistId ?? null;
-  if (!artistId) {
-    const { data: artist, error } = await supabase
-      .from("artists")
-      .insert({
-        full_name: result.full_name,
-        artist_name: result.artist_name,
-        location: result.location,
-        bio: result.bio,
-        technique: result.technique,
-        website: result.website,
-        instagram: result.instagram,
-        email: result.email,
-        other_links: result.portfolio_links,
-        fit_assessment: result.fit_assessment,
-        fit_rationale: result.fit_rationale,
-        source: "research",
-        status: "candidate",
-        owner_id: ownerId,
-        created_by: me.id,
-      })
-      .select("id")
-      .single();
-    if (error || !artist) throw new Error("Failed to save candidate");
-    artistId = artist.id as string;
-    await logArtistEvent(artistId, "created", null, "research");
-  }
-
-  await supabase.from("artist_research_results").update({ state: "saved", saved_artist_id: artistId }).eq("id", resultId);
-  revalidateArtistViews();
-  return artistId;
-}
-
-// ---------------------------------------------------------------------------
-// Outreach (spec §14-15) — uses the shared Gmail connection, never Communication.
-// ---------------------------------------------------------------------------
-
-export async function generateArtistOutreachDraft(artistId: string): Promise<string> {
-  const supabase = await createClient();
-  const { data: artist } = await supabase.from("artists").select("full_name, artist_name, bio, technique, fit_rationale").eq("id", artistId).single();
-  if (!artist) return "";
-  return generateOutreachDraft(artist, artistId);
-}
 
 export async function sendArtistOutreach(artistId: string, subject: string, body: string) {
   if (!body.trim()) return;

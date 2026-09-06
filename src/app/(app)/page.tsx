@@ -3,7 +3,7 @@ import { MessageCircle, CheckSquare, User, Megaphone, X } from "lucide-react";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { getAttentionItems, getAttentionItemsUncapped, getHomeStats, type AttentionItem } from "@/lib/attention";
-import { getCalendarConnectionStatus, getWeekEvents } from "@/lib/google/calendar";
+import { getCalendarConnectionStatus, getUpcomingEvents } from "@/lib/google/calendar";
 import { formatElapsedEn } from "@/lib/dates";
 import { AttentionList } from "@/components/home/attention-list";
 import { TodayCard } from "@/components/home/today-card";
@@ -72,10 +72,10 @@ export default async function HomePage({
   ]);
 
   let calendarState: "connected" | "not_connected" | "error" = "not_connected";
-  let events: Awaited<ReturnType<typeof getWeekEvents>> = [];
+  let events: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
   if (calendarStatus.connected) {
     try {
-      events = await getWeekEvents();
+      events = await getUpcomingEvents();
       calendarState = "connected";
     } catch (err) {
       console.error("[home] calendar fetch failed", err);

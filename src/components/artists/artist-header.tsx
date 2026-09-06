@@ -1,8 +1,6 @@
 import { ArtistStatusBadge, FitBadge } from "@/components/artists/artist-badges";
 import { initials } from "@/lib/communication-style";
-import type { ArtistWithRelations } from "@/lib/types";
-
-const SOURCE_LABELS: Record<string, string> = { application: "Application", research: "Research", direct: "Direct add" };
+import { ARTIST_SOURCE_LABELS, type ArtistWithRelations } from "@/lib/types";
 
 export function ArtistHeader({ artist }: { artist: ArtistWithRelations }) {
   const name = artist.artist_name || artist.full_name;
@@ -14,7 +12,7 @@ export function ArtistHeader({ artist }: { artist: ArtistWithRelations }) {
           {initials(name)}
         </span>
         <div>
-          <p className="text-[13px] font-medium text-[#7c6fe0]">{SOURCE_LABELS[artist.source]}</p>
+          <p className="text-[13px] font-medium text-[#7c6fe0]">{ARTIST_SOURCE_LABELS[artist.source]}</p>
           <p className="text-[19px] font-semibold text-[#12181f]">{name}</p>
           {artist.artist_name && <p className="text-[13.5px] text-[#8a909a]">{artist.full_name}</p>}
         </div>

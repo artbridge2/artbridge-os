@@ -21,7 +21,8 @@ export default async function TasksPage({
 
   const viewParam = typeof params.view === "string" ? params.view : "mine";
   const view: TasksView = viewParam === "all" && !isCurator ? "all" : viewParam === "completed" ? "completed" : "mine";
-  const layout: TasksLayout = params.layout === "board" ? "board" : "list";
+  // Board is the default operational view — List stays available via ?layout=list.
+  const layout: TasksLayout = params.layout === "list" ? "list" : "board";
 
   const search = typeof params.q === "string" ? params.q : undefined;
   const priority = typeof params.priority === "string" ? params.priority : undefined;
@@ -50,7 +51,7 @@ export default async function TasksPage({
     const v = overrides.view ?? view;
     const l = overrides.layout ?? layout;
     if (v !== "mine") qs.set("view", v);
-    if (l === "board") qs.set("layout", "board");
+    if (l === "list") qs.set("layout", "list");
     const query = qs.toString();
     return `/tasks${query ? `?${query}` : ""}`;
   }
@@ -115,7 +116,7 @@ export default async function TasksPage({
 
       <form className="flex flex-wrap items-center gap-2" action="/tasks" method="get">
         <input type="hidden" name="view" value={view} />
-        {layout === "board" && <input type="hidden" name="layout" value="board" />}
+        {layout === "list" && <input type="hidden" name="layout" value="list" />}
         <input
           name="q"
           defaultValue={search}

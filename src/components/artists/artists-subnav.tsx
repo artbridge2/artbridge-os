@@ -5,14 +5,12 @@ export function ArtistsSubnav({
   active,
   counts,
 }: {
-  active: "all" | "applications" | "research" | "outreach";
+  active: "all" | "applications";
   counts: { applications: number };
 }) {
   const tabs: { key: typeof active; label: string; href: string; count?: number }[] = [
     { key: "all", label: "All Artists", href: "/artists" },
     { key: "applications", label: "Applications", href: "/artists/applications", count: counts.applications },
-    { key: "research", label: "Research / Candidates", href: "/artists/research" },
-    { key: "outreach", label: "Outreach", href: "/artists/outreach" },
   ];
 
   return (

@@ -23,6 +23,7 @@ export function ReplyComposer({
   const [isAiDraft, setIsAiDraft] = useState(!!initialDraft);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [draftPending, startDraftTransition] = useTransition();
 
   function submit() {
     if (!text.trim()) return;
@@ -48,11 +49,17 @@ export function ReplyComposer({
 
   function useAiDraft() {
     setError(null);
-    startTransition(async () => {
-      const draft = await generateDraft(threadId);
-      if (draft) {
-        setText(draft);
-        setIsAiDraft(true);
+    startDraftTransition(async () => {
+      try {
+        const draft = await generateDraft(threadId);
+        if (draft) {
+          setText(draft);
+          setIsAiDraft(true);
+        } else {
+          setError("Couldn't generate a draft — the AI returned nothing usable. Try again.");
+        }
+      } catch {
+        setError("Couldn't generate a draft — check that AI is configured in Settings, then retry.");
       }
     });
   }
@@ -94,7 +101,7 @@ export function ReplyComposer({
         }}
         placeholder={mode === "reply" ? "Write your reply…" : "Write an internal note (never sent externally)…"}
         rows={5}
-        disabled={pending}
+        disabled={pending || draftPending}
         className="mt-1 resize-none border-0 px-1 shadow-none focus-visible:ring-0"
       />
 
@@ -107,14 +114,14 @@ export function ReplyComposer({
 
       <div className="mt-2 flex items-center justify-between">
         {mode === "reply" ? (
-          <Button type="button" variant="outline" size="sm" disabled={pending} onClick={useAiDraft}>
+          <Button type="button" variant="outline" size="sm" disabled={pending || draftPending} onClick={useAiDraft}>
             <Sparkles className="size-3.5" />
-            {isAiDraft ? "Regenerate draft" : "Use AI draft"}
+            {draftPending ? "Generating draft…" : isAiDraft ? "Regenerate draft" : "Use AI draft"}
           </Button>
         ) : (
           <span />
         )}
-        <Button type="button" size="sm" disabled={pending || !text.trim()} onClick={submit} className="bg-[#12181f] hover:bg-[#12181f]/90">
+        <Button type="button" size="sm" disabled={pending || draftPending || !text.trim()} onClick={submit} className="bg-[#12181f] hover:bg-[#12181f]/90">
           <Send className="size-3.5" />
           {mode === "reply" ? "Send reply" : "Add note"}
         </Button>

@@ -333,17 +333,19 @@ export function issueTypeLabel(issueType: string | null): string | null {
 // Artists
 // ---------------------------------------------------------------------------
 
-export type ArtistSource = "application" | "research" | "direct";
+/** Outbound = we discovered/contacted the artist. Applied = the artist approached/applied to Artbridge. Manual entry is a creation method, not a relationship source — deliberately not a third value. */
+export type ArtistSource = "outbound" | "applied";
 
 export type ArtistStatus =
   | "candidate"
   | "contacted"
   | "in_conversation"
   | "maybe_later"
-  | "accepted"
+  | "registered"
   | "active"
-  | "inactive"
   | "rejected";
+
+export type RejectionReason = "portfolio_fit" | "terms" | "no_response" | "not_interested" | "other";
 
 export type FitAssessment = "strong" | "possible" | "weak";
 
@@ -369,6 +371,9 @@ export interface Artist {
   owner_id: string | null;
   fit_assessment: FitAssessment | null;
   fit_rationale: string | null;
+  maybe_later_previous_status: ArtistStatus | null;
+  revisit_date: string | null;
+  rejection_reason: RejectionReason | null;
   commission_terms: string | null;
   onboarding_commission_at: string | null;
   onboarding_commission_by: string | null;
@@ -392,11 +397,23 @@ export const ARTIST_STATUS_LABELS: Record<ArtistStatus, string> = {
   candidate: "Candidate",
   contacted: "Contacted",
   in_conversation: "In conversation",
-  maybe_later: "Maybe / Later",
-  accepted: "Accepted",
-  active: "Active",
-  inactive: "Inactive",
+  maybe_later: "Maybe later",
+  registered: "Registered",
+  active: "Active artist",
   rejected: "Rejected",
+};
+
+export const ARTIST_SOURCE_LABELS: Record<ArtistSource, string> = {
+  outbound: "Outbound",
+  applied: "Applied",
+};
+
+export const REJECTION_REASON_LABELS: Record<RejectionReason, string> = {
+  portfolio_fit: "Portfolio fit",
+  terms: "Could not agree on terms",
+  no_response: "No response",
+  not_interested: "Not interested",
+  other: "Other",
 };
 
 export const FIT_ASSESSMENT_LABELS: Record<FitAssessment, string> = {

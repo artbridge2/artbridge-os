@@ -33,7 +33,9 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
 
   const latestThread = threads[0] ?? null;
   const messages = latestThread ? await getArtistOutreachMessages(latestThread.id) : [];
-  const showOnboarding = artist.status === "accepted" || artist.status === "active";
+  // Onboarding milestones (Commission -> Registration -> Upload -> Published) start once there's
+  // an active conversation, since Registration itself is one of the steps that moves them further.
+  const showOnboarding = artist.status === "in_conversation" || artist.status === "registered" || artist.status === "active";
 
   return (
     <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-6 pt-6 lg:grid-cols-[1fr_280px]">

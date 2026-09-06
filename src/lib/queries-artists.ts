@@ -1,16 +1,12 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type {
-  Artist,
   ArtistApplicationWithRelations,
   ArtistComment,
   ArtistDocument,
   ArtistEvent,
   ArtistOutreachMessage,
   ArtistOutreachThread,
-  ArtistResearchMessage,
-  ArtistResearchResult,
-  ArtistResearchSession,
   ArtistStatus,
   ArtistWithRelations,
   Profile,
@@ -54,15 +50,6 @@ export async function getArtistById(id: string): Promise<ArtistWithRelations | n
   return (data as unknown as ArtistWithRelations) ?? null;
 }
 
-export interface ArtistCounts {
-  candidate: number;
-  contacted: number;
-  in_conversation: number;
-  maybe_later: number;
-  accepted: number;
-  active: number;
-}
-
 export async function getArtistStatusCounts(): Promise<Partial<Record<ArtistStatus, number>>> {
   const supabase = await createClient();
   const { data } = await supabase.from("artists").select("status").is("deleted_at", null);
@@ -104,43 +91,9 @@ export async function getPendingApplicationCount(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
-// Research
-// ---------------------------------------------------------------------------
-
-export async function getArtistResearchSessions(): Promise<ArtistResearchSession[]> {
-  const supabase = await createClient();
-  const { data } = await supabase.from("artist_research_sessions").select("*").order("updated_at", { ascending: false });
-  return (data ?? []) as ArtistResearchSession[];
-}
-
-export async function getArtistResearchSessionById(id: string): Promise<ArtistResearchSession | null> {
-  const supabase = await createClient();
-  const { data } = await supabase.from("artist_research_sessions").select("*").eq("id", id).single();
-  return (data as ArtistResearchSession) ?? null;
-}
-
-export async function getArtistResearchMessages(sessionId: string): Promise<ArtistResearchMessage[]> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("artist_research_messages")
-    .select("*")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
-  return (data ?? []) as ArtistResearchMessage[];
-}
-
-export async function getArtistResearchResults(sessionId: string): Promise<ArtistResearchResult[]> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("artist_research_results")
-    .select("*")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
-  return (data ?? []) as ArtistResearchResult[];
-}
-
-// ---------------------------------------------------------------------------
-// Outreach
+// Outreach — real email thread storage/read only (AI research/discovery
+// removed; see actions/artists.ts). Kept for the Artist detail page's
+// Conversation card and the auto Contacted->In conversation transition.
 // ---------------------------------------------------------------------------
 
 export async function getArtistOutreachThreads(artistId: string): Promise<ArtistOutreachThread[]> {
@@ -161,16 +114,6 @@ export async function getArtistOutreachMessages(threadId: string): Promise<Artis
     .eq("thread_id", threadId)
     .order("sent_at", { ascending: true });
   return (data ?? []) as ArtistOutreachMessage[];
-}
-
-/** All artists with an active outreach thread — backs the Outreach view. */
-export async function getOutreachArtists(): Promise<ArtistWithRelations[]> {
-  const supabase = await createClient();
-  const { data: threads } = await supabase.from("artist_outreach_threads").select("artist_id");
-  const artistIds = [...new Set((threads ?? []).map((t) => t.artist_id as string))];
-  if (artistIds.length === 0) return [];
-  const { data } = await supabase.from("artists").select(ARTIST_SELECT).in("id", artistIds).is("deleted_at", null);
-  return (data ?? []) as unknown as ArtistWithRelations[];
 }
 
 // ---------------------------------------------------------------------------

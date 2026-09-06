@@ -1,7 +1,7 @@
 import "server-only";
 import { google } from "googleapis";
 import { getAuthorizedGoogleClient } from "@/lib/gmail/client";
-import { weekBounds } from "@/lib/dates";
+import { addDays, budapestNow } from "@/lib/dates";
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
@@ -56,8 +56,8 @@ export async function getCalendarEvents(start: Date, end: Date): Promise<Calenda
     }));
 }
 
-/** Current week's events (Mon-Sun, Budapest) — used by the Home "Today" card. */
-export async function getWeekEvents(): Promise<CalendarEventSummary[]> {
-  const { start, end } = weekBounds();
-  return getCalendarEvents(start, end);
+/** Today through the next 7 days (Budapest) — used by the Home "Next 7 days" card. Deliberately forward-looking only: a past event isn't operationally useful on Home (it stays in the full Calendar module; anything overdue belongs in Attention, not here). */
+export async function getUpcomingEvents(): Promise<CalendarEventSummary[]> {
+  const today = budapestNow();
+  return getCalendarEvents(today, addDays(today, 7));
 }

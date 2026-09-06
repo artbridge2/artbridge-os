@@ -24,7 +24,7 @@ function CardShell({ children }: { children: React.ReactNode }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar className="size-[18px] text-[#12181f]" />
-          <h2 className="text-[16px] font-semibold text-[#12181f]">This week</h2>
+          <h2 className="text-[16px] font-semibold text-[#12181f]">Next 7 days</h2>
         </div>
       </div>
       {children}
@@ -43,7 +43,7 @@ export function TodayCard({
     return (
       <CardShell>
         <p className="mt-3 text-[13.5px] text-[#8a909a]">
-          Connect the company Google Calendar to see this week&apos;s events here.
+          Connect the company Google Calendar to see the next 7 days&apos; events here.
         </p>
         <Link
           href="/api/gmail/connect"
@@ -70,7 +70,7 @@ export function TodayCard({
   return (
     <CardShell>
       {list.length === 0 ? (
-        <p className="mt-3 text-[13.5px] text-[#9aa0a8]">No events this week.</p>
+        <p className="mt-3 text-[13.5px] text-[#9aa0a8]">No events in the next 7 days.</p>
       ) : (
         <div className="mt-3 flex flex-col">
           {list.map((event, i) => (

@@ -18,7 +18,7 @@ export function NewArtistDialog({ profiles, defaultOwnerId }: { profiles: Profil
   const [pending, startTransition] = useTransition();
   const [duplicates, setDuplicates] = useState<DuplicateArtistMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ full_name: "", artist_name: "", email: "", website: "", instagram: "", bio: "", owner_id: defaultOwnerId });
+  const [form, setForm] = useState({ full_name: "", artist_name: "", email: "", website: "", instagram: "", location: "", technique: "", bio: "", owner_id: defaultOwnerId });
 
   function update(field: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -44,9 +44,11 @@ export function NewArtistDialog({ profiles, defaultOwnerId }: { profiles: Profil
       email: form.email || null,
       website: form.website || null,
       instagram: form.instagram || null,
+      location: form.location || null,
+      technique: form.technique || null,
       bio: form.bio || null,
       ownerId: form.owner_id,
-      source: "direct",
+      source: "outbound",
     });
     setOpen(false);
     router.push(`/artists/${id}`);
@@ -121,6 +123,16 @@ export function NewArtistDialog({ profiles, defaultOwnerId }: { profiles: Profil
               <div className="space-y-2">
                 <Label>Instagram</Label>
                 <Input value={form.instagram} onChange={(e) => update("instagram", e.target.value)} placeholder="@handle" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Input value={form.location} onChange={(e) => update("location", e.target.value)} placeholder="City, country" />
+              </div>
+              <div className="space-y-2">
+                <Label>Technique / practice</Label>
+                <Input value={form.technique} onChange={(e) => update("technique", e.target.value)} />
               </div>
             </div>
             <div className="space-y-2">

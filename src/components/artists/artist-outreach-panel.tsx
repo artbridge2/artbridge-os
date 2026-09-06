@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Send } from "lucide-react";
-import { generateArtistOutreachDraft, replyArtistOutreach, sendArtistOutreach } from "@/actions/artists";
+import { Send } from "lucide-react";
+import { replyArtistOutreach, sendArtistOutreach } from "@/actions/artists";
 import { Button } from "@/components/ui/button";
 import { formatElapsedEn } from "@/lib/dates";
 import type { ArtistOutreachMessage, ArtistOutreachThread } from "@/lib/types";
@@ -26,13 +26,6 @@ export function ArtistOutreachPanel({
   const [subject, setSubject] = useState(thread?.subject ?? "");
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  function useAiDraft() {
-    startTransition(async () => {
-      const draft = await generateArtistOutreachDraft(artistId);
-      if (draft) setBody(draft);
-    });
-  }
 
   function submit() {
     if (!body.trim()) return;
@@ -60,7 +53,7 @@ export function ArtistOutreachPanel({
 
   return (
     <div className="rounded-xl border border-[#eeeeee] bg-white p-4">
-      <p className="text-[13px] font-semibold uppercase tracking-wide text-[#9aa0a8]">Outreach</p>
+      <p className="text-[13px] font-semibold uppercase tracking-wide text-[#9aa0a8]">Conversation</p>
 
       {messages.length > 0 && (
         <div className="mt-2 space-y-2">
@@ -97,11 +90,7 @@ export function ArtistOutreachPanel({
           />
           {error && <p className="text-[13px] text-destructive">{error}</p>}
           {!gmailConnected && <p className="text-[12.5px] text-[#9aa0a8]">Gmail isn&apos;t connected — sending will fail until it&apos;s set up in Settings.</p>}
-          <div className="flex items-center justify-between">
-            <Button type="button" variant="outline" size="sm" disabled={pending} onClick={useAiDraft}>
-              <Sparkles className="size-3.5" />
-              Use AI draft
-            </Button>
+          <div className="flex items-center justify-end">
             <Button type="button" size="sm" disabled={pending || !body.trim()} onClick={submit} className="bg-[#12181f] hover:bg-[#12181f]/90">
               <Send className="size-3.5" />
               {thread ? "Send reply" : "Send outreach"}
