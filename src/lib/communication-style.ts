@@ -1,4 +1,4 @@
-import { Code2, MessageCircle, HelpCircle, Megaphone, Truck, type LucideIcon } from "lucide-react";
+import { Building2, Code2, MessageCircle, HelpCircle, Megaphone, Truck, type LucideIcon } from "lucide-react";
 import type { CasePriority, CaseStatus, EmailCategory } from "@/lib/types";
 
 export interface CategoryStyle {
@@ -14,6 +14,7 @@ export const CATEGORY_STYLE: Record<EmailCategory, CategoryStyle> = {
   artist: { icon: Megaphone, iconBg: "#fdecd9", iconColor: "#e8952a", barColor: "#e8952a" },
   developer: { icon: Code2, iconBg: "#ece9fd", iconColor: "#6c5ce7", barColor: "#6c5ce7" },
   supplier: { icon: Truck, iconBg: "#e3f0fd", iconColor: "#3b82f6", barColor: "#3b82f6" },
+  internal: { icon: Building2, iconBg: "#e6f4f1", iconColor: "#0f9488", barColor: "#0f9488" },
   other: { icon: HelpCircle, iconBg: "#f0f0f0", iconColor: "#6b7280", barColor: "#6b7280" },
 };
 

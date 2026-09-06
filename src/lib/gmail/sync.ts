@@ -22,7 +22,7 @@ type Admin = ReturnType<typeof createAdminClient>;
  * which is why classification effectively never persisted for any thread
  * the AI assigned an owner to.
  */
-async function resolveOwnerProfileId(admin: Admin, roleLabel: "adam" | "eszter" | null): Promise<string | null> {
+export async function resolveOwnerProfileId(admin: Admin, roleLabel: "adam" | "eszter" | null): Promise<string | null> {
   if (!roleLabel) return null;
   const { data } = await admin.from("profiles").select("id").eq("role", roleLabel).maybeSingle();
   return data?.id ?? null;
@@ -45,15 +45,24 @@ async function fetchShopifyDraftContext(senderRaw: string | null): Promise<Shopi
   }
 }
 
-/** Shared by the live sync path and the backlog backfill — one place that writes a classification result to a thread. */
-async function applyClassification(
+/**
+ * Shared by the live sync path, the backlog backfill, and the manual
+ * category-correction re-evaluation — one place that writes a classification
+ * result to a thread. `categoryLocked` is true once a human has manually
+ * corrected the category (see setCategory in actions/inbox.ts) — the AI's
+ * own category guess is silently dropped in that case so a later
+ * reclassification (a new inbound message, the backfill batch) can never
+ * revert a human's fix. Every other field still gets the fresh AI result.
+ */
+export async function applyClassification(
   admin: Admin,
   threadId: string,
   newestMessageId: string | null,
   existingOwnerId: string | null,
   result: ClassificationResult,
   threadForAI: ThreadForAI,
-  senderRaw: string | null
+  senderRaw: string | null,
+  categoryLocked = false
 ): Promise<void> {
   if (!result.should_create_case) {
     const { error } = await admin
@@ -95,7 +104,7 @@ async function applyClassification(
   const { error } = await admin
     .from("email_threads")
     .update({
-      category: result.category,
+      ...(categoryLocked ? {} : { category: result.category }),
       issue_type: result.issue_type,
       owner_id: ownerId,
       priority: result.priority,
@@ -169,7 +178,7 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
 
   const { data: existing } = await admin
     .from("email_threads")
-    .select("id, last_classified_message_id, status, owner_id, category, suppressed, classification_version")
+    .select("id, last_classified_message_id, status, owner_id, category, category_source, suppressed, classification_version")
     .eq("gmail_thread_id", fetched.gmailThreadId)
     .maybeSingle();
 
@@ -255,7 +264,16 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
     };
     const result = await classifyThread(threadForAI);
 
-    await applyClassification(admin, thread.id, newestMessageId, existing?.owner_id ?? null, result, threadForAI, threadRow.sender);
+    await applyClassification(
+      admin,
+      thread.id,
+      newestMessageId,
+      existing?.owner_id ?? null,
+      result,
+      threadForAI,
+      threadRow.sender,
+      existing?.category_source === "human"
+    );
   } catch (err) {
     console.error("[sync] classification failed for", fetched.gmailThreadId, err);
   }
@@ -449,7 +467,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   // instead of risking a mid-call timeout that loses whatever didn't commit.
   const { data: threads } = await admin
     .from("email_threads")
-    .select("id, subject, participants, owner_id, sender")
+    .select("id, subject, participants, owner_id, sender, category_source")
     .eq("suppressed", false)
     .neq("classification_version", CLASSIFICATION_VERSION)
     .order("created_at", { ascending: true })
@@ -485,7 +503,16 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
       };
       const result = await classifyThread(threadForAI);
 
-      await applyClassification(admin, thread.id, newestMessageId, thread.owner_id, result, threadForAI, thread.sender);
+      await applyClassification(
+        admin,
+        thread.id,
+        newestMessageId,
+        thread.owner_id,
+        result,
+        threadForAI,
+        thread.sender,
+        thread.category_source === "human"
+      );
       processed++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

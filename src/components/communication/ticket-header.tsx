@@ -1,8 +1,9 @@
 import { ShoppingBag } from "lucide-react";
 import { CasePriorityBadge, CaseStatusBadge } from "@/components/communication/case-status-badge";
+import { CategoryEditor } from "@/components/communication/category-editor";
 import { CATEGORY_STYLE, initials, senderDisplayName } from "@/lib/communication-style";
 import { formatElapsedEn } from "@/lib/dates";
-import { CATEGORY_LABELS_SINGULAR, issueTypeLabel, threadReference, type EmailThreadWithRelations } from "@/lib/types";
+import { issueTypeLabel, threadReference, type EmailThreadWithRelations } from "@/lib/types";
 import type { ShopifyCustomerMatch } from "@/lib/shopify/lookup";
 
 export function TicketHeader({ thread, shopifyMatch }: { thread: EmailThreadWithRelations; shopifyMatch?: ShopifyCustomerMatch | null }) {
@@ -21,7 +22,7 @@ export function TicketHeader({ thread, shopifyMatch }: { thread: EmailThreadWith
         </span>
         <div>
           <p className="text-[13px] font-medium" style={{ color: style.iconColor }}>
-            {CATEGORY_LABELS_SINGULAR[thread.category]}
+            <CategoryEditor threadId={thread.id} category={thread.category} />
             {issueLabel && <span className="text-[#9aa0a8]"> · {issueLabel}</span>}
           </p>
           <p className="text-[19px] font-semibold text-[#12181f]">{name}</p>

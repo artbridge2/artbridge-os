@@ -6,9 +6,21 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
-import { generateReplyDraft } from "@/lib/ai/provider";
+import { classifyThread, extractEmail, generateReplyDraft, type ThreadForAI } from "@/lib/ai/provider";
+import { applyClassification, resolveOwnerProfileId } from "@/lib/gmail/sync";
 import { sendReply as sendGmailReply } from "@/lib/gmail/client";
+import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import type { CasePriority, CaseStatus, EmailCategory } from "@/lib/types";
+
+/** Deterministic fallback routing, mirroring the default routing described in Settings → AI — used so a manual category correction re-routes ownership immediately, even when the AI classifier is unavailable (e.g. billing outage). Only ever assigns, never unassigns an already-owned case. */
+const DEFAULT_CATEGORY_OWNER_ROLE: Record<EmailCategory, "adam" | "eszter" | null> = {
+  customer: "eszter",
+  artist: "adam",
+  developer: "adam",
+  supplier: "adam",
+  internal: null,
+  other: null,
+};
 
 function revalidateInboxViews() {
   revalidatePath("/", "layout");
@@ -128,11 +140,106 @@ export async function setIssueType(threadId: string, issueType: string | null) {
   revalidateInboxViews();
 }
 
+/**
+ * Human category correction — spec: "AI classifications are intelligent
+ * defaults, not locked decisions." Beyond the category write itself, this:
+ *  - marks category_source='human' so no later AI reclassification silently
+ *    reverts it (see the categoryLocked param on applyClassification);
+ *  - logs category_changed (previous/new) — buildCorrectionsDigest() already
+ *    reads these back as few-shot guidance for future classification;
+ *  - re-matches Shopify customer/order deterministically for the new
+ *    category (no AI call needed, so this still works during an API outage);
+ *  - re-routes ownership via the same default-routing table AI uses, but
+ *    only ever assigns an unassigned/differently-routed case, never
+ *    unassigns one a human is already working;
+ *  - best-effort regenerates the AI summary/next actions/draft from the full
+ *    thread so they reflect the corrected context — wrapped so an AI outage
+ *    never blocks the correction itself from saving.
+ */
 export async function setCategory(threadId: string, category: EmailCategory) {
   const supabase = await createClient();
-  const { data: before } = await supabase.from("email_threads").select("category").eq("id", threadId).single();
-  await supabase.from("email_threads").update({ category }).eq("id", threadId);
-  await logCaseEvent(threadId, "category_changed", before?.category ?? null, category);
+  const { data: before } = await supabase
+    .from("email_threads")
+    .select("category, sender, subject, owner_id, status")
+    .eq("id", threadId)
+    .single();
+  if (!before || before.category === category) return;
+
+  await supabase.from("email_threads").update({ category, category_source: "human" }).eq("id", threadId);
+  await logCaseEvent(threadId, "category_changed", before.category, category);
+
+  // Deterministic Shopify re-match — only meaningful for customer cases.
+  if (category === "customer" && before.sender) {
+    try {
+      const match = await findShopifyCustomerByEmail(extractEmail(before.sender));
+      await supabase
+        .from("email_threads")
+        .update({
+          shopify_customer_id: match?.id ?? null,
+          shopify_order_id: match?.recentOrders[0]?.id ?? null,
+          shopify_match_confidence: match ? "confirmed" : null,
+        })
+        .eq("id", threadId);
+    } catch (err) {
+      console.error("[inbox] shopify re-match after category change failed", err);
+    }
+  } else if (before.category === "customer") {
+    // Leaving "customer" — an order/customer link for the old category no longer applies.
+    await supabase
+      .from("email_threads")
+      .update({ shopify_customer_id: null, shopify_order_id: null, shopify_match_confidence: null })
+      .eq("id", threadId);
+  }
+
+  // Deterministic re-routing — assigns only, never unassigns a case a human already owns.
+  let ownerId = before.owner_id;
+  const defaultRole = DEFAULT_CATEGORY_OWNER_ROLE[category];
+  if (defaultRole) {
+    const admin = createAdminClient();
+    const routedOwnerId = await resolveOwnerProfileId(admin, defaultRole);
+    if (routedOwnerId && routedOwnerId !== before.owner_id) {
+      ownerId = routedOwnerId;
+      await reassignThread(threadId, routedOwnerId);
+    }
+  }
+
+  // Best-effort AI refresh of summary/next actions/draft for the corrected
+  // context — a billing/API outage must not block the correction from saving.
+  try {
+    const { data: messages } = await supabase
+      .from("email_messages")
+      .select("gmail_message_id, sender, sanitized_body, sent_at, is_inbound")
+      .eq("thread_id", threadId)
+      .eq("is_internal_note", false)
+      .order("sent_at", { ascending: true });
+
+    if (messages && messages.length > 0) {
+      const threadForAI: ThreadForAI = {
+        subject: before.subject,
+        participants: [],
+        messages: messages.map((m) => ({ sender: m.sender, body: m.sanitized_body ?? "", sentAt: m.sent_at, isInbound: m.is_inbound })),
+      };
+      const result = await classifyThread(threadForAI);
+      // A human just confirmed this is a real, correctly-categorized case —
+      // the refresh pass must never be able to suppress it via a stale
+      // should_create_case=false guess.
+      result.should_create_case = true;
+      const admin = createAdminClient();
+      await applyClassification(
+        admin,
+        threadId,
+        messages.at(-1)?.gmail_message_id ?? null,
+        ownerId,
+        result,
+        threadForAI,
+        before.sender,
+        true // categoryLocked — keep the human's category regardless of what the AI still thinks
+      );
+    }
+  } catch (err) {
+    console.error("[inbox] AI re-evaluation after category change failed", err);
+  }
+
   revalidateInboxViews();
 }
 

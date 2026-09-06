@@ -116,7 +116,10 @@ export const RECURRING_FREQ_LABELS: Record<RecurringFreq, string> = {
 // ---------------------------------------------------------------------------
 
 /** "Other" is the deliberate fallback for uncertain/unclassified communication — never silently dropped. */
-export type EmailCategory = "customer" | "artist" | "developer" | "supplier" | "other";
+export type EmailCategory = "customer" | "artist" | "developer" | "supplier" | "internal" | "other";
+
+/** Whether the current category came from AI classification or a human correction — a "human" source is never silently overwritten by a later reclassification. */
+export type CategorySource = "ai" | "human";
 
 /** Real, persisted lifecycle — not derived. Archived is reached automatically 3 days after Resolved. */
 export type CaseStatus = "new" | "needs_reply" | "needs_review" | "in_progress" | "waiting" | "resolved" | "archived";
@@ -139,6 +142,7 @@ export interface EmailThread {
   last_outbound_at: string | null;
   snippet: string | null;
   category: EmailCategory;
+  category_source: CategorySource;
   issue_type: string | null;
   suggested_next_action: string | null;
   owner_id: string | null;
@@ -209,6 +213,7 @@ export const CATEGORY_LABELS: Record<EmailCategory, string> = {
   artist: "Artists",
   developer: "Developers",
   supplier: "Suppliers",
+  internal: "Internal",
   other: "Other",
 };
 
@@ -218,10 +223,11 @@ export const CATEGORY_LABELS_SINGULAR: Record<EmailCategory, string> = {
   artist: "Artist",
   developer: "Developer",
   supplier: "Supplier",
+  internal: "Internal",
   other: "Other",
 };
 
-export const COMMUNICATION_CATEGORY_GROUPS: EmailCategory[] = ["customer", "artist", "developer", "supplier", "other"];
+export const COMMUNICATION_CATEGORY_GROUPS: EmailCategory[] = ["customer", "artist", "developer", "supplier", "internal", "other"];
 
 export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {
   new: "New",

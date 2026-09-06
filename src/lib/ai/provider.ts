@@ -16,7 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // live in the admin-editable ai_instructions table, see Settings → AI).
 export const CLASSIFICATION_VERSION = 3;
 
-const CATEGORIES = ["customer", "artist", "developer", "supplier", "other"] as const;
+const CATEGORIES = ["customer", "artist", "developer", "supplier", "internal", "other"] as const;
 const STATUSES = ["needs_reply", "needs_review", "in_progress", "waiting"] as const;
 const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 const OWNERS = ["adam", "eszter"] as const;
@@ -185,6 +185,8 @@ Call the appropriate tool immediately. Do not write out translations, analysis o
 ${global}
 
 should_create_case = false for newsletters, spam, phishing, irrelevant promotions, and routine no-reply/automated notifications that require no action. When genuinely uncertain whether something matters, set should_create_case = true with category "other" and status "needs_review" rather than discarding it — never silently drop something that might be important.
+
+category "internal" is for Artbridge-to-Artbridge coordination and account/tooling administration between team members (e.g. accounting/bookkeeping correspondence, internal meeting scheduling, a colleague forwarding something for review) — not customer-, artist-, supplier-, or developer-facing. Use "other" when genuinely unsure it even belongs in one of the real categories, not as a synonym for "internal".
 
 Business rules:
 ${businessRules}
