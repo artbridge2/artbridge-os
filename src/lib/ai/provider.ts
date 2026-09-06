@@ -15,7 +15,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Bump when the prompt/logic changes meaningfully enough that existing
 // classifications should be considered stale (business rules themselves now
 // live in the admin-editable ai_instructions table, see Settings → AI).
-export const CLASSIFICATION_VERSION = 3;
+// v3->v4: forces reprocessing under the Starred-calibration corrections
+// (customer replies to automated emails, cold-outreach false positives)
+// saved to communication_business_rules/communication_routing as v2.
+export const CLASSIFICATION_VERSION = 4;
 
 const CATEGORIES = ["customer", "artist", "developer", "supplier", "internal", "other"] as const;
 const STATUSES = ["needs_reply", "needs_review", "in_progress", "waiting"] as const;
