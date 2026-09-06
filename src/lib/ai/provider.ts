@@ -13,7 +13,7 @@ import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 // Bump when the prompt/logic changes meaningfully enough that existing
 // classifications should be considered stale (business rules themselves now
 // live in the admin-editable ai_instructions table, see Settings → AI).
-export const CLASSIFICATION_VERSION = 2;
+export const CLASSIFICATION_VERSION = 3;
 
 const CATEGORIES = ["customer", "artist", "developer", "supplier", "other"] as const;
 const STATUSES = ["needs_reply", "needs_review", "in_progress", "waiting"] as const;
