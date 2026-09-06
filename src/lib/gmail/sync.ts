@@ -13,6 +13,20 @@ import type { CaseStatus } from "@/lib/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
+/**
+ * classifyThread() returns the role label it reasoned about ("adam"/
+ * "eszter"), not a real profile UUID — email_threads.owner_id is a UUID FK,
+ * so writing the label directly always failed with a Postgres type error.
+ * That failure was being silently swallowed (see applyClassification below),
+ * which is why classification effectively never persisted for any thread
+ * the AI assigned an owner to.
+ */
+async function resolveOwnerProfileId(admin: Admin, roleLabel: "adam" | "eszter" | null): Promise<string | null> {
+  if (!roleLabel) return null;
+  const { data } = await admin.from("profiles").select("id").eq("role", roleLabel).maybeSingle();
+  return data?.id ?? null;
+}
+
 /** Shared by the live sync path and the backlog backfill — one place that writes a classification result to a thread. */
 async function applyClassification(
   admin: Admin,
@@ -34,13 +48,15 @@ async function applyClassification(
     return;
   }
 
+  // Never overwrite a manual reassignment with a low-confidence guess.
+  const ownerId = existingOwnerId ?? (await resolveOwnerProfileId(admin, result.owner));
+
   const { error } = await admin
     .from("email_threads")
     .update({
       category: result.category,
       issue_type: result.issue_type,
-      // Never overwrite a manual reassignment with a low-confidence guess.
-      owner_id: existingOwnerId ?? result.owner,
+      owner_id: ownerId,
       priority: result.priority,
       status: result.status,
       ai_summary: result.summary,
