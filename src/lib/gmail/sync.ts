@@ -22,14 +22,19 @@ async function applyClassification(
   result: ClassificationResult
 ): Promise<void> {
   if (!result.should_create_case) {
-    await admin
+    const { error } = await admin
       .from("email_threads")
       .update({ suppressed: true, classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
       .eq("id", threadId);
+    // A silently-ignored write error left threads permanently stuck at
+    // classification_version 0 with no visible failure anywhere — surface it
+    // as a real error so the caller's error count (and retry-on-next-run)
+    // actually reflects reality.
+    if (error) throw new Error(`suppress update failed: ${error.message}`);
     return;
   }
 
-  await admin
+  const { error } = await admin
     .from("email_threads")
     .update({
       category: result.category,
@@ -49,6 +54,7 @@ async function applyClassification(
       last_classified_message_id: newestMessageId,
     })
     .eq("id", threadId);
+  if (error) throw new Error(`classification update failed: ${error.message}`);
 }
 
 const MY_EMAIL_FALLBACK = "info@artbridge.hu";
@@ -347,6 +353,7 @@ export interface BackfillResult {
   processed: number;
   errors: number;
   remaining: number;
+  errorSamples?: string[];
 }
 
 /**
@@ -377,6 +384,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
 
   let processed = 0;
   let errors = 0;
+  const errorSamples: string[] = [];
 
   for (const thread of threads ?? []) {
     if (Date.now() - startedAt > maxBudgetMs) break;
@@ -406,7 +414,9 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
       await applyClassification(admin, thread.id, newestMessageId, thread.owner_id, result);
       processed++;
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error("[sync] backfill classification failed for thread", thread.id, err);
+      if (errorSamples.length < 5) errorSamples.push(`${thread.id}: ${message}`);
       errors++;
     }
   }
@@ -417,7 +427,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
     .eq("suppressed", false)
     .neq("classification_version", CLASSIFICATION_VERSION);
 
-  return { processed, errors, remaining: remaining ?? 0 };
+  return { processed, errors, remaining: remaining ?? 0, errorSamples: errorSamples.length > 0 ? errorSamples : undefined };
 }
 
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */

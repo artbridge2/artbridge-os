@@ -20,9 +20,10 @@ export function GmailBackfillButton() {
             setResult(null);
             const res = await fetch("/api/gmail/classify-backfill", { method: "POST" });
             const data = await res.json();
+            const errorDetail = data.errorSamples?.length ? ` (${data.errorSamples.join("; ")})` : "";
             setResult(
               res.ok
-                ? `${data.processed} classified${data.errors ? `, ${data.errors} error(s)` : ""} — ${data.remaining} left in backlog`
+                ? `${data.processed} classified${data.errors ? `, ${data.errors} error(s)${errorDetail}` : ""} — ${data.remaining} left in backlog`
                 : "Backfill failed"
             );
             router.refresh();
