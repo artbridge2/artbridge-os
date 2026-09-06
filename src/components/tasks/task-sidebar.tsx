@@ -1,16 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Link2 } from "lucide-react";
+import { AutosaveIndicator } from "@/components/autosave-indicator";
 import { changeDueDate, changePriority, changeStatus, deleteTask, reassignTask, stopRecurrence } from "@/actions/tasks";
 import { PRIORITY_LABELS, ROLE_LABELS, STATUS_LABELS, type Profile, type TaskPriority, type TaskStatus, type TaskWithRelations } from "@/lib/types";
 
-function SidebarCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SidebarCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-[#eeeeee] bg-white p-4">
-      <p className="text-[14.5px] font-semibold text-[#12181f]">{title}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[14.5px] font-semibold text-[#12181f]">{title}</p>
+        {action}
+      </div>
       <div className="mt-3">{children}</div>
     </div>
   );
@@ -19,17 +23,20 @@ function SidebarCard({ title, children }: { title: string; children: React.React
 export function TaskSidebar({ task, profiles }: { task: TaskWithRelations; profiles: Profile[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [saved, setSaved] = useState(false);
 
   function run(fn: () => Promise<void>) {
     startTransition(async () => {
       await fn();
       router.refresh();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
     });
   }
 
   return (
     <div className="space-y-4">
-      <SidebarCard title="Details">
+      <SidebarCard title="Details" action={<AutosaveIndicator pending={pending} saved={saved} />}>
         <div className="flex flex-col gap-3">
           <div>
             <label className="text-[12px] text-[#9aa0a8]">Status</label>

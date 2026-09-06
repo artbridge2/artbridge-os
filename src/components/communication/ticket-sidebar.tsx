@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ExternalLink, Plus, ShoppingBag, X } from "lucide-react";
+import { AutosaveIndicator } from "@/components/autosave-indicator";
 import {
   archiveCase,
   assignToMe,
@@ -70,6 +71,7 @@ export function TicketSidebar({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [saved, setSaved] = useState(false);
   const [labelInput, setLabelInput] = useState("");
   const [addingLabel, setAddingLabel] = useState(false);
   const name = senderDisplayName(thread);
@@ -79,6 +81,8 @@ export function TicketSidebar({
     startTransition(async () => {
       await fn();
       router.refresh();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
     });
   }
 
@@ -224,7 +228,7 @@ export function TicketSidebar({
         )}
       </SidebarCard>
 
-      <SidebarCard title="Actions">
+      <SidebarCard title="Actions" action={<AutosaveIndicator pending={pending} saved={saved} />}>
         <div className="flex flex-col">
           <div className="px-2 py-1.5">
             <label className="text-[12px] text-[#9aa0a8]">Priority</label>
