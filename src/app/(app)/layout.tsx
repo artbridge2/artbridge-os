@@ -4,17 +4,19 @@ import { getCommunicationCategoryCounts } from "@/lib/queries-inbox";
 import { getNotifications } from "@/lib/queries-notifications";
 import { getTasks } from "@/lib/queries";
 import { getArtistAttentionItems } from "@/lib/attention";
+import { getCampaignStatusCounts } from "@/lib/queries-marketing";
 import { AppSidebar } from "@/components/home/app-sidebar";
 import { Topbar } from "@/components/home/topbar";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const profile = await getCurrentProfile();
 
-  const [communicationCounts, notifications, myTasks, artistAttentionItems] = await Promise.all([
+  const [communicationCounts, notifications, myTasks, artistAttentionItems, campaignStatusCounts] = await Promise.all([
     profile.role === "kurator" ? Promise.resolve(undefined) : getCommunicationCategoryCounts(profile.id),
     getNotifications(profile.id),
     getTasks({ ownerId: profile.id, excludeDone: true }),
     getArtistAttentionItems(profile.id),
+    getCampaignStatusCounts(),
   ]);
 
   return (
@@ -24,6 +26,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         communicationCounts={communicationCounts}
         taskCount={myTasks.length}
         artistCount={artistAttentionItems.length}
+        activeCampaignCount={campaignStatusCounts.active ?? 0}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar role={profile.role} notifications={notifications} />

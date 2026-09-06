@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageCircle, CheckSquare, User, X } from "lucide-react";
+import { MessageCircle, CheckSquare, User, Megaphone, X } from "lucide-react";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { getAttentionItems, getAttentionItemsUncapped, getHomeStats, type AttentionItem } from "@/lib/attention";
@@ -24,6 +24,7 @@ const TICKET_STYLES: Record<AttentionItem["source_type"], { icon: typeof CheckSq
   task: { icon: CheckSquare, iconBg: "#e3f0fd", iconColor: "#3b82f6", category: "Task" },
   communication: { icon: MessageCircle, iconBg: "#ffefee", iconColor: "#e0545c", category: "Communication" },
   artist: { icon: User, iconBg: "#eeecfd", iconColor: "#7c6fe0", category: "Artists" },
+  campaign: { icon: Megaphone, iconBg: "#fdecd9", iconColor: "#e8952a", category: "Marketing" },
 };
 
 function toTicket(item: AttentionItem): Ticket {

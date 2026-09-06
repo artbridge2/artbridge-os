@@ -2,6 +2,7 @@ import "server-only";
 import { getEmailThreads } from "@/lib/queries-inbox";
 import { getTasks, getProfiles } from "@/lib/queries";
 import { getArtists, getArtistApplications } from "@/lib/queries-artists";
+import { getCampaignAttentionItems as getCampaignAttentionItemsRaw } from "@/lib/queries-marketing";
 import { formatDateOnly, todayInBudapest, weekBounds } from "@/lib/dates";
 import { CASE_STATUS_LABELS, type TaskPriority, type TaskWithRelations } from "@/lib/types";
 
@@ -13,7 +14,7 @@ import { CASE_STATUS_LABELS, type TaskPriority, type TaskWithRelations } from "@
  * contributing to the merge below; Home itself doesn't change.
  */
 export interface AttentionItem {
-  source_type: "communication" | "task" | "artist";
+  source_type: "communication" | "task" | "artist" | "campaign";
   source_id: string;
   owner_id: string | null;
   title: string;
@@ -149,6 +150,26 @@ export async function getArtistAttentionItems(ownerId: string): Promise<Attentio
   return items;
 }
 
+/** Genuinely Campaign-level attention only (spec §16) — Content/Email/SEO items would qualify independently once those modules exist. */
+async function getCampaignAttentionItems(ownerId: string): Promise<AttentionItem[]> {
+  const items = await getCampaignAttentionItemsRaw(ownerId);
+  return items.map((item) => ({
+    source_type: "campaign" as const,
+    source_id: item.source_id,
+    owner_id: item.ownerId,
+    title: item.title,
+    context: item.context,
+    priority: "normal" as TaskPriority,
+    due_at: item.date ? new Date(item.date).toISOString() : null,
+    follow_up_at: null,
+    attention_reason: item.reason,
+    href: item.href,
+    updated_at: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+    overdue: item.overdue,
+    needsHumanDecision: true,
+  }));
+}
+
 /** Band per spec §8 — lower sorts first. AI relevance may only reorder within the same band (not implemented — no scoring signal available without an AI key). */
 function rankBand(item: AttentionItem): number {
   if (item.priority === "urgent") return 1;
@@ -174,7 +195,7 @@ function rankItems(items: AttentionItem[]): AttentionItem[] {
 
 /** Home's "Needs your attention" — at most 10, ranked, real. */
 export async function getAttentionItems(ownerId: string): Promise<AttentionItem[]> {
-  const [communication, tasks, artists] = await Promise.all([
+  const [communication, tasks, artists, campaigns] = await Promise.all([
     getCommunicationAttentionItems(ownerId).catch((err) => {
       console.error("[attention] communication source failed", err);
       return [];
@@ -187,9 +208,13 @@ export async function getAttentionItems(ownerId: string): Promise<AttentionItem[
       console.error("[attention] artist source failed", err);
       return [];
     }),
+    getCampaignAttentionItems(ownerId).catch((err) => {
+      console.error("[attention] campaign source failed", err);
+      return [];
+    }),
   ]);
 
-  return rankItems([...communication, ...tasks, ...artists]).slice(0, 10);
+  return rankItems([...communication, ...tasks, ...artists, ...campaigns]).slice(0, 10);
 }
 
 export interface HomeStats {
@@ -234,10 +259,11 @@ export async function getHomeStats(ownerId: string): Promise<HomeStats> {
 
 /** Same eligibility/ranking as the Home queue, but uncapped — used for the "Needs attention" stat (and the Team card's per-member count), which counts everything eligible, not just the visible top 10. */
 export async function getAttentionItemsUncapped(ownerId: string): Promise<AttentionItem[]> {
-  const [communication, tasks, artists] = await Promise.all([
+  const [communication, tasks, artists, campaigns] = await Promise.all([
     getCommunicationAttentionItems(ownerId).catch(() => []),
     getTaskAttentionItems(ownerId).catch(() => []),
     getArtistAttentionItems(ownerId).catch(() => []),
+    getCampaignAttentionItems(ownerId).catch(() => []),
   ]);
-  return [...communication, ...tasks, ...artists];
+  return [...communication, ...tasks, ...artists, ...campaigns];
 }

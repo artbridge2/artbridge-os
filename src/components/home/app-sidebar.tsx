@@ -89,14 +89,16 @@ export function AppSidebar({
   communicationCounts,
   taskCount,
   artistCount,
+  activeCampaignCount,
 }: {
   role: Role;
   communicationCounts?: { total: number; byCategory: Partial<Record<EmailCategory, number>> };
   taskCount?: number;
   artistCount?: number;
+  activeCampaignCount?: number;
 }) {
   const pathname = usePathname();
-  const [marketingOpen, setMarketingOpen] = useState(true);
+  const [marketingOpen, setMarketingOpen] = useState(pathname.startsWith("/marketing"));
   const [communicationOpen, setCommunicationOpen] = useState(pathname.startsWith("/communication"));
   // Spec §13: curators have no standalone Communication module access at all.
   const canSeeCommunication = role !== "kurator";
@@ -148,7 +150,7 @@ export function AppSidebar({
           >
             <Megaphone className="size-[18px] shrink-0 text-[#3d4451]" />
             <span className="flex-1 truncate">Marketing</span>
-            <Badge count={5} />
+            <Badge count={activeCampaignCount ?? 0} />
             {marketingOpen ? (
               <ChevronUp className="size-3.5 text-[#9aa1ab]" />
             ) : (
@@ -158,10 +160,10 @@ export function AppSidebar({
           {marketingOpen && (
             <div className="flex flex-col">
               <SubNavRow href="/marketing" label="Overview" />
-              <SubNavRow href="/marketing" label="Campaigns" count={2} />
-              <SubNavRow href="/marketing" label="Content" count={1} />
-              <SubNavRow href="/marketing" label="Email Marketing" count={1} />
-              <SubNavRow href="/marketing" label="SEO" count={1} />
+              <SubNavRow href="/marketing/campaigns" label="Campaigns" count={activeCampaignCount ?? 0} />
+              <SubNavRow href="/marketing/content" label="Content" />
+              <SubNavRow href="/marketing/email" label="Email Marketing" />
+              <SubNavRow href="/marketing/seo" label="SEO" />
             </div>
           )}
         </div>

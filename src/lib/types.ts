@@ -479,3 +479,114 @@ export const ONBOARDING_STEPS = [
   { key: "upload", field: "onboarding_upload_at", label: "First artwork upload" },
   { key: "published", field: "onboarding_published_at", label: "Published on Artbridge" },
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Marketing — Campaigns + shared Marketing Calendar (Content, Email Marketing
+// and SEO are separate subdomains with their own specs; they plug into
+// Campaigns via CampaignLink rather than becoming generic marketing tickets).
+// ---------------------------------------------------------------------------
+
+export type CampaignStatus = "planning" | "active" | "completed" | "cancelled";
+
+export interface MarketingCampaign {
+  id: string;
+  name: string;
+  brief: string | null;
+  owner_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: CampaignStatus;
+  priority: TaskPriority;
+  goal_notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface MarketingCampaignWithRelations extends MarketingCampaign {
+  owner: Profile | null;
+}
+
+export const CAMPAIGN_STATUS_LABELS: Record<CampaignStatus, string> = {
+  planning: "Planning",
+  active: "Active",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+/** Submodules that can be linked from a Campaign. Content/Email/SEO don't exist yet — each becomes real once its own spec lands. */
+export type CampaignLinkType = "content" | "email" | "seo";
+
+export const CAMPAIGN_LINK_TYPE_LABELS: Record<CampaignLinkType, string> = {
+  content: "Content",
+  email: "Email",
+  seo: "SEO",
+};
+
+export interface CampaignLink {
+  id: string;
+  campaign_id: string;
+  linked_type: CampaignLinkType;
+  linked_id: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** A CampaignLink resolved against its owning module's real data — never a duplicated copy. */
+export interface CampaignLinkedItem {
+  link_id: string;
+  type: CampaignLinkType;
+  title: string;
+  status: string | null;
+  owner: string | null;
+  date: string | null;
+  href: string;
+}
+
+export interface MarketingCalendarEvent {
+  id: string;
+  title: string;
+  event_date: string;
+  description: string | null;
+  owner_id: string | null;
+  campaign_id: string | null;
+  priority: TaskPriority;
+  event_type: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketingCalendarEventWithRelations extends MarketingCalendarEvent {
+  owner: Profile | null;
+  campaign: Pick<MarketingCampaign, "id" | "name"> | null;
+}
+
+/** Unified Marketing Calendar row — derived from real Campaign dates, resolved linked-item dates, and standalone events. */
+export interface MarketingCalendarItem {
+  id: string;
+  kind: "campaign_start" | "campaign_end" | "event";
+  date: string;
+  title: string;
+  context: string | null;
+  href: string;
+}
+
+export interface MarketingCampaignComment {
+  id: string;
+  campaign_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface MarketingCampaignEvent {
+  id: string;
+  campaign_id: string;
+  actor_id: string | null;
+  event_type: string;
+  from_value: string | null;
+  to_value: string | null;
+  created_at: string;
+}

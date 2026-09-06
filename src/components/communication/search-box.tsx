@@ -4,7 +4,13 @@ import { Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
-export function SearchBox() {
+export function SearchBox({
+  basePath = "/communication",
+  placeholder = "Search name, email, order number, ticket content…",
+}: {
+  basePath?: string;
+  placeholder?: string;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [value, setValue] = useState(searchParams.get("q") ?? "");
@@ -15,7 +21,7 @@ export function SearchBox() {
     const params = new URLSearchParams(searchParams.toString());
     if (value.trim()) params.set("q", value.trim());
     else params.delete("q");
-    startTransition(() => router.push(`/communication?${params.toString()}`));
+    startTransition(() => router.push(`${basePath}?${params.toString()}`));
   }
 
   return (
@@ -24,7 +30,7 @@ export function SearchBox() {
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Search name, email, order number, ticket content…"
+        placeholder={placeholder}
         className="h-9 w-full rounded-lg border border-[#e4e4e4] bg-white pl-9 pr-3 text-[13.5px] text-[#3d4451] placeholder:text-[#9aa0a8]"
       />
     </form>
