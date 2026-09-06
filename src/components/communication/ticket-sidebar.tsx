@@ -8,10 +8,12 @@ import {
   archiveCase,
   assignToMe,
   deleteConversation,
+  markNotRelevant,
   markResolved,
   markWaiting,
   reassignThread,
   restoreCase,
+  restoreFromNotRelevant,
   setIssueType,
   setPriority,
   updateLabels,
@@ -268,6 +270,18 @@ export function TicketSidebar({
           )}
           {thread.status === "archived" && (
             <ActionButton label="Restore" disabled={pending} onClick={() => run(() => restoreCase(thread.id))} />
+          )}
+          {!thread.suppressed ? (
+            <ActionButton
+              label="Not relevant"
+              disabled={pending}
+              onClick={() => {
+                if (!confirm("Mark as not relevant? This removes it from active Communications but leaves the original Gmail message untouched.")) return;
+                startTransition(() => markNotRelevant(thread.id));
+              }}
+            />
+          ) : (
+            <ActionButton label="Restore (was marked not relevant)" disabled={pending} onClick={() => run(() => restoreFromNotRelevant(thread.id))} />
           )}
 
           <ActionButton

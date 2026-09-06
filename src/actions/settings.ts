@@ -145,3 +145,55 @@ export async function disconnectShopify() {
   revalidatePath("/settings");
   revalidatePath("/settings/integrations");
 }
+
+export interface StarredCalibrationItem {
+  subject: string | null;
+  sender: string | null;
+  category: string | null;
+  status: string | null;
+  snippet: string | null;
+}
+
+/**
+ * One-time bootstrap calibration read — pulls currently-starred Gmail
+ * threads (the only reliable Starred signal; Gmail doesn't expose historical
+ * star changes) so an admin can review real patterns and manually tune the
+ * persistent classification instructions. Not a permanent feature — nothing
+ * calls this automatically.
+ */
+export async function getStarredCalibrationSample(limit = 80): Promise<StarredCalibrationItem[]> {
+  await requireAdmin();
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const { listStarredThreadIds, getThread } = await import("@/lib/gmail/client");
+  const { getGmailConnectionStatus } = await import("@/lib/gmail/status");
+
+  const status = await getGmailConnectionStatus();
+  if (!status.connected || !status.connectedEmail) return [];
+
+  const admin = createAdminClient();
+  const starredIds = (await listStarredThreadIds()).slice(0, limit);
+
+  const { data: known } = await admin
+    .from("email_threads")
+    .select("gmail_thread_id, subject, sender, category, status, snippet")
+    .in("gmail_thread_id", starredIds);
+
+  const knownById = new Map((known ?? []).map((t) => [t.gmail_thread_id, t]));
+  const results: StarredCalibrationItem[] = [];
+
+  for (const id of starredIds) {
+    const existing = knownById.get(id);
+    if (existing) {
+      results.push({ subject: existing.subject, sender: existing.sender, category: existing.category, status: existing.status, snippet: existing.snippet });
+      continue;
+    }
+    try {
+      const fetched = await getThread(id, status.connectedEmail);
+      results.push({ subject: fetched.subject, sender: fetched.messages[0]?.sender ?? null, category: null, status: null, snippet: fetched.snippet });
+    } catch (err) {
+      console.error("[settings] failed to fetch starred thread for calibration", id, err);
+    }
+  }
+
+  return results;
+}

@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { getAiInstruction } from "./instructions";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Thin, provider-swappable AI layer. Everything the rest of the app needs
@@ -104,11 +105,77 @@ function conversationText(thread: ThreadForAI): string {
     .join("\n\n---\n\n");
 }
 
+const CORRECTIONS_PER_TYPE = 5;
+
+/**
+ * Bounded, recency-biased digest of real human corrections to past AI
+ * classification/routing/relevance decisions (spec: "OS corrections become
+ * the stronger long-term learning signal"). Few-shot guidance, not rules —
+ * the current message and business rules still take priority. Kept small on
+ * purpose so classification prompts don't grow indefinitely.
+ */
+async function buildCorrectionsDigest(): Promise<string> {
+  const admin = createAdminClient();
+
+  const [{ data: events }, { data: profiles }] = await Promise.all([
+    admin
+      .from("communication_case_events")
+      .select("event_type, from_value, to_value, email_threads(subject)")
+      .in("event_type", ["category_changed", "assigned", "marked_not_relevant"])
+      .order("created_at", { ascending: false })
+      .limit(90),
+    admin.from("profiles").select("id, role"),
+  ]);
+
+  if (!events || events.length === 0) return "";
+
+  const roleById = new Map((profiles ?? []).map((p) => [p.id, p.role]));
+  const resolveOwner = (id: string | null) => (id ? roleById.get(id) ?? id : "unassigned");
+
+  type Row = { event_type: string; from_value: string | null; to_value: string | null; email_threads: { subject: string | null } | { subject: string | null }[] | null };
+  const subjectOf = (row: Row) => {
+    const t = row.email_threads;
+    return (Array.isArray(t) ? t[0]?.subject : t?.subject) ?? "(no subject)";
+  };
+
+  const categoryCorrections = (events as Row[]).filter((e) => e.event_type === "category_changed").slice(0, CORRECTIONS_PER_TYPE);
+  const routingCorrections = (events as Row[]).filter((e) => e.event_type === "assigned").slice(0, CORRECTIONS_PER_TYPE);
+  const notRelevant = (events as Row[]).filter((e) => e.event_type === "marked_not_relevant").slice(0, CORRECTIONS_PER_TYPE);
+
+  const sections: string[] = [];
+  if (categoryCorrections.length > 0) {
+    sections.push(
+      "Classification corrections (category was wrong, human fixed it):\n" +
+        categoryCorrections.map((e) => `- "${subjectOf(e)}": ${e.from_value ?? "unclassified"} -> ${e.to_value}`).join("\n")
+    );
+  }
+  if (routingCorrections.length > 0) {
+    sections.push(
+      "Routing corrections (owner was wrong, human fixed it):\n" +
+        routingCorrections.map((e) => `- "${subjectOf(e)}": ${resolveOwner(e.from_value)} -> ${resolveOwner(e.to_value)}`).join("\n")
+    );
+  }
+  if (notRelevant.length > 0) {
+    sections.push(
+      "Marked not relevant (AI created a case that shouldn't have been one):\n" +
+        notRelevant.map((e) => `- "${subjectOf(e)}" (was category: ${e.from_value ?? "unknown"})`).join("\n")
+    );
+  }
+
+  if (sections.length === 0) return "";
+
+  return `\nRecent corrections from the team — treat as guidance from real feedback, not absolute rules; the current message's actual content and the business rules above still take priority:\n${sections.join("\n\n")}`;
+}
+
 async function buildClassifySystemPrompt(): Promise<string> {
-  const [global, businessRules, routing] = await Promise.all([
+  const [global, businessRules, routing, corrections] = await Promise.all([
     getAiInstruction("global"),
     getAiInstruction("communication_business_rules"),
     getAiInstruction("communication_routing"),
+    buildCorrectionsDigest().catch((err) => {
+      console.error("[ai] corrections digest failed", err);
+      return "";
+    }),
   ]);
 
   return `You triage the shared Artbridge inbox (info@artbridge.hu). For each thread, decide whether it needs an active case at all, then classify it — always from the actual content, never from sender/domain alone.
@@ -124,6 +191,7 @@ ${businessRules}
 
 Default routing (content, not just sender, decides which of these applies):
 ${routing}
+${corrections}
 
 issue_type: for category "customer", pick one of damaged_product, wrong_product, missing_item, delivery_problem, delivery_status, order_change, cancellation, return, refund, product_question, payment_problem, other. For other categories, a short free-text label or null.
 

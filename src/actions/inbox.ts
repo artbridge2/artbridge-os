@@ -69,6 +69,29 @@ export async function restoreCase(threadId: string) {
   await changeThreadStatus(threadId, "needs_review");
 }
 
+/**
+ * "This should never have been a case" — distinct from Archive (a case that
+ * WAS real work and is now done). Suppresses it from active queues, leaves
+ * the real Gmail message untouched, and logs an explicit negative signal
+ * (category at the time it was rejected) that the classification correction
+ * digest reads back as a "don't do this again" example.
+ */
+export async function markNotRelevant(threadId: string) {
+  const supabase = await createClient();
+  const { data: before } = await supabase.from("email_threads").select("category, subject").eq("id", threadId).single();
+  await supabase.from("email_threads").update({ suppressed: true }).eq("id", threadId);
+  await logCaseEvent(threadId, "marked_not_relevant", before?.category ?? null, before?.subject ?? null);
+  revalidateInboxViews();
+}
+
+/** Undoes a "Not relevant" mark — an Admin decided it actually was worth tracking after all. */
+export async function restoreFromNotRelevant(threadId: string) {
+  const supabase = await createClient();
+  await supabase.from("email_threads").update({ suppressed: false }).eq("id", threadId);
+  await logCaseEvent(threadId, "restored_from_not_relevant", "not_relevant", null);
+  revalidateInboxViews();
+}
+
 export async function reassignThread(threadId: string, ownerId: string | null) {
   const supabase = await createClient();
   const { data: before } = await supabase.from("email_threads").select("owner_id, subject").eq("id", threadId).single();

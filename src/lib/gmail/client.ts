@@ -208,6 +208,30 @@ export async function listRecentThreadIds(days: number): Promise<string[]> {
   return ids;
 }
 
+/**
+ * Currently-starred thread IDs — a one-time calibration snapshot only (Gmail
+ * doesn't reliably expose historical star changes; current state is all
+ * that's honestly available). Never treat this as an ongoing production
+ * signal — see the Settings → AI calibration notes for how this was used.
+ */
+export async function listStarredThreadIds(): Promise<string[]> {
+  const gmail = await getAuthorizedClient();
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const { data } = await gmail.users.threads.list({
+      userId: "me",
+      q: "is:starred",
+      pageToken,
+      maxResults: 100,
+    });
+    (data.threads ?? []).forEach((t) => t.id && ids.push(t.id));
+    pageToken = data.nextPageToken ?? undefined;
+  } while (pageToken);
+
+  return ids;
+}
+
 export async function getThread(gmailThreadId: string, myEmail: string): Promise<FetchedThread> {
   const gmail = await getAuthorizedClient();
   const { data } = await gmail.users.threads.get({

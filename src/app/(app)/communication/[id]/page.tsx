@@ -48,6 +48,12 @@ export default async function ThreadDetailPage({
           Back to Communication
         </Link>
 
+        {thread.suppressed && (
+          <div className="rounded-xl border border-[#f0d98c] bg-[#fdf3d9] px-4 py-2.5 text-[13.5px] text-[#8a6d1a]">
+            Marked as not relevant — hidden from active Communications. The original Gmail message is untouched. Use &quot;Restore&quot; in the sidebar to undo.
+          </div>
+        )}
+
         <TicketHeader thread={thread} shopifyMatch={shopifyMatch} />
 
         <AiCasePanel threadId={thread.id} summary={thread.ai_summary} checklist={thread.ai_checklist} />
