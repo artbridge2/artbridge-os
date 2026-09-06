@@ -743,25 +743,51 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
  * review, per Ádám's explicit instruction.
  */
 export async function classifySpecificThreads(
-  gmailThreadIds: string[]
-): Promise<{ processed: number; skippedJunk: number; skippedMissing: number; errors: number; errorSamples: string[] }> {
+  gmailThreadIds: string[],
+  maxBudgetMs = 45_000
+): Promise<{
+  processed: number;
+  skippedJunk: number;
+  skippedMissing: number;
+  skippedAlready: number;
+  errors: number;
+  errorSamples: string[];
+  timedOut: boolean;
+}> {
   const admin = createAdminClient();
+  const startedAt = Date.now();
   let processed = 0;
   let skippedJunk = 0;
   let skippedMissing = 0;
+  let skippedAlready = 0;
   let errors = 0;
+  let timedOut = false;
   const errorSamples: string[] = [];
 
   for (const gmailThreadId of gmailThreadIds) {
+    if (Date.now() - startedAt > maxBudgetMs) {
+      timedOut = true;
+      break;
+    }
     try {
       const { data: thread } = await admin
         .from("email_threads")
-        .select("id, subject, participants, owner_id, sender, category_source, status_source, priority_source")
+        .select(
+          "id, subject, participants, owner_id, sender, category_source, status_source, priority_source, classification_version"
+        )
         .eq("gmail_thread_id", gmailThreadId)
         .maybeSingle();
 
       if (!thread) {
         skippedMissing++;
+        continue;
+      }
+
+      // Already reclassified in a prior (timed-out) attempt at this same
+      // calibration pass — safe/cheap to retry the whole list without
+      // re-spending AI cost on ones already done.
+      if (thread.classification_version === CLASSIFICATION_VERSION) {
+        skippedAlready++;
         continue;
       }
 
@@ -818,7 +844,7 @@ export async function classifySpecificThreads(
     }
   }
 
-  return { processed, skippedJunk, skippedMissing, errors, errorSamples };
+  return { processed, skippedJunk, skippedMissing, skippedAlready, errors, errorSamples, timedOut };
 }
 
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */
