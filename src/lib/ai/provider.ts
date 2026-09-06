@@ -234,9 +234,29 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
     });
   }
 
-  const classification = response.content.find(
+  let classification = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "classify_email_thread"
   );
+
+  // With tool_choice "auto" the model occasionally responds with plain text
+  // and no tool call at all — force the classification tool directly rather
+  // than losing the thread to a spurious error every time this happens.
+  if (!classification) {
+    messages.push({ role: "assistant", content: response.content });
+    messages.push({ role: "user", content: "Call classify_email_thread now with your classification." });
+    response = await client().messages.create({
+      model: CLASSIFY_MODEL,
+      max_tokens: 1024,
+      system,
+      tools,
+      tool_choice: { type: "tool", name: "classify_email_thread" },
+      messages,
+    });
+    classification = response.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "classify_email_thread"
+    );
+  }
+
   if (!classification) throw new Error("AI did not return a classification tool call");
 
   const parsed = ClassificationSchema.parse(classification.input);
