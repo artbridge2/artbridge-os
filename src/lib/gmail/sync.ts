@@ -7,9 +7,10 @@ import {
   listRecentThreadIds,
   type FetchedThread,
 } from "./client";
-import { classifyThread, CLASSIFICATION_VERSION, type ClassificationResult } from "@/lib/ai/provider";
+import { classifyThread, extractEmail, generateReplyDraft, CLASSIFICATION_VERSION, type ClassificationResult, type ShopifyDraftContext, type ThreadForAI } from "@/lib/ai/provider";
+import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import { decideIngestion } from "./ingestion";
-import type { CaseStatus } from "@/lib/types";
+import type { CaseStatus, ChecklistItem } from "@/lib/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -27,13 +28,32 @@ async function resolveOwnerProfileId(admin: Admin, roleLabel: "adam" | "eszter" 
   return data?.id ?? null;
 }
 
+/** Best-effort Shopify context for draft generation — reuses the same customer the classifier already matched, never a fresh guess. Failure here must never block classification from being saved. */
+async function fetchShopifyDraftContext(senderRaw: string | null): Promise<ShopifyDraftContext | null> {
+  if (!senderRaw) return null;
+  try {
+    const match = await findShopifyCustomerByEmail(extractEmail(senderRaw));
+    if (!match) return null;
+    return {
+      customerName: match.name,
+      ordersCount: match.ordersCount,
+      recentOrders: match.recentOrders.map((o) => ({ name: o.name, createdAt: o.createdAt, fulfillmentStatus: o.fulfillmentStatus })),
+    };
+  } catch (err) {
+    console.error("[sync] shopify draft context lookup failed", err);
+    return null;
+  }
+}
+
 /** Shared by the live sync path and the backlog backfill — one place that writes a classification result to a thread. */
 async function applyClassification(
   admin: Admin,
   threadId: string,
   newestMessageId: string | null,
   existingOwnerId: string | null,
-  result: ClassificationResult
+  result: ClassificationResult,
+  threadForAI: ThreadForAI,
+  senderRaw: string | null
 ): Promise<void> {
   if (!result.should_create_case) {
     const { error } = await admin
@@ -51,6 +71,27 @@ async function applyClassification(
   // Never overwrite a manual reassignment with a low-confidence guess.
   const ownerId = existingOwnerId ?? (await resolveOwnerProfileId(admin, result.owner));
 
+  const checklist: ChecklistItem[] = result.next_actions.map((text) => ({
+    id: crypto.randomUUID(),
+    text,
+    done: false,
+  }));
+
+  // The case genuinely needs a human reply — prepare the draft now instead of
+  // making Ádám/Eszter click "Generate" every time they open it. Best-effort:
+  // a draft-generation failure must not lose the classification itself.
+  let draftReply: string | null = null;
+  let draftGeneratedAt: string | null = null;
+  if (result.status === "needs_reply") {
+    try {
+      const shopifyContext = result.shopify_customer_id ? await fetchShopifyDraftContext(senderRaw) : null;
+      draftReply = await generateReplyDraft(threadForAI, shopifyContext);
+      draftGeneratedAt = new Date().toISOString();
+    } catch (err) {
+      console.error("[sync] auto draft generation failed", err);
+    }
+  }
+
   const { error } = await admin
     .from("email_threads")
     .update({
@@ -66,6 +107,8 @@ async function applyClassification(
       shopify_customer_id: result.shopify_customer_id,
       shopify_order_id: result.shopify_order_id,
       shopify_match_confidence: result.shopify_match_confidence,
+      ai_checklist: checklist,
+      ...(draftReply ? { draft_reply: draftReply, draft_generated_at: draftGeneratedAt } : {}),
       classification_version: CLASSIFICATION_VERSION,
       last_classified_message_id: newestMessageId,
     })
@@ -187,7 +230,7 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
   if (alreadyClassified || fetched.messages.length === 0) return;
 
   try {
-    const result = await classifyThread({
+    const threadForAI: ThreadForAI = {
       subject: fetched.subject,
       participants: fetched.participants,
       messages: fetched.messages.map((m) => ({
@@ -196,9 +239,10 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
         sentAt: m.sentAt,
         isInbound: m.isInbound,
       })),
-    });
+    };
+    const result = await classifyThread(threadForAI);
 
-    await applyClassification(admin, thread.id, newestMessageId, existing?.owner_id ?? null, result);
+    await applyClassification(admin, thread.id, newestMessageId, existing?.owner_id ?? null, result, threadForAI, threadRow.sender);
   } catch (err) {
     console.error("[sync] classification failed for", fetched.gmailThreadId, err);
   }
@@ -392,7 +436,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   // instead of risking a mid-call timeout that loses whatever didn't commit.
   const { data: threads } = await admin
     .from("email_threads")
-    .select("id, subject, participants, owner_id")
+    .select("id, subject, participants, owner_id, sender")
     .eq("suppressed", false)
     .neq("classification_version", CLASSIFICATION_VERSION)
     .order("created_at", { ascending: true })
@@ -416,7 +460,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
       const participants = ((thread.participants as { email: string }[] | null) ?? []).map((p) => p.email);
       const newestMessageId = messages.at(-1)?.gmail_message_id ?? null;
 
-      const result = await classifyThread({
+      const threadForAI: ThreadForAI = {
         subject: thread.subject,
         participants,
         messages: messages.map((m) => ({
@@ -425,9 +469,10 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
           sentAt: m.sent_at,
           isInbound: m.is_inbound,
         })),
-      });
+      };
+      const result = await classifyThread(threadForAI);
 
-      await applyClassification(admin, thread.id, newestMessageId, thread.owner_id, result);
+      await applyClassification(admin, thread.id, newestMessageId, thread.owner_id, result, threadForAI, thread.sender);
       processed++;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

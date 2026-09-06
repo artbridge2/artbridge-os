@@ -8,10 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-export function ReplyComposer({ threadId, gmailConnected }: { threadId: string; gmailConnected: boolean }) {
+export function ReplyComposer({
+  threadId,
+  gmailConnected,
+  initialDraft,
+}: {
+  threadId: string;
+  gmailConnected: boolean;
+  initialDraft?: string | null;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<"reply" | "note">("reply");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialDraft ?? "");
+  const [isAiDraft, setIsAiDraft] = useState(!!initialDraft);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -41,7 +50,10 @@ export function ReplyComposer({ threadId, gmailConnected }: { threadId: string; 
     setError(null);
     startTransition(async () => {
       const draft = await generateDraft(threadId);
-      if (draft) setText(draft);
+      if (draft) {
+        setText(draft);
+        setIsAiDraft(true);
+      }
     });
   }
 
@@ -70,13 +82,20 @@ export function ReplyComposer({ threadId, gmailConnected }: { threadId: string; 
         </button>
       </div>
 
+      {mode === "reply" && isAiDraft && (
+        <p className="mt-2 px-1 text-[12px] font-medium text-[#7c6fe0]">AI-drafted from this case — review and edit before sending.</p>
+      )}
+
       <Textarea
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (!e.target.value.trim()) setIsAiDraft(false);
+        }}
         placeholder={mode === "reply" ? "Write your reply…" : "Write an internal note (never sent externally)…"}
         rows={5}
         disabled={pending}
-        className="mt-2 resize-none border-0 px-1 shadow-none focus-visible:ring-0"
+        className="mt-1 resize-none border-0 px-1 shadow-none focus-visible:ring-0"
       />
 
       {error && <p className="mt-1 px-1 text-[13px] text-destructive">{error}</p>}
@@ -90,7 +109,7 @@ export function ReplyComposer({ threadId, gmailConnected }: { threadId: string; 
         {mode === "reply" ? (
           <Button type="button" variant="outline" size="sm" disabled={pending} onClick={useAiDraft}>
             <Sparkles className="size-3.5" />
-            Use AI draft
+            {isAiDraft ? "Regenerate draft" : "Use AI draft"}
           </Button>
         ) : (
           <span />

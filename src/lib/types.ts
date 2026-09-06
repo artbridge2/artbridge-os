@@ -159,6 +159,7 @@ export interface EmailThread {
   suggested_task_title: string | null;
   draft_reply: string | null;
   draft_generated_at: string | null;
+  ai_checklist: ChecklistItem[];
   classification_version: number;
   last_classified_message_id: string | null;
   created_at: string;

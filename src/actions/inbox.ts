@@ -181,6 +181,27 @@ export async function generateDraft(threadId: string): Promise<string> {
   return draft;
 }
 
+/** Toggles one AI-suggested next action done/not-done — these are inferred at classification time, not manually authored. */
+export async function toggleChecklistItem(threadId: string, itemId: string) {
+  const supabase = await createClient();
+  const { data: thread } = await supabase.from("email_threads").select("ai_checklist").eq("id", threadId).single();
+  if (!thread) return;
+  const checklist = (thread.ai_checklist as { id: string; text: string; done: boolean }[]) ?? [];
+  const updated = checklist.map((item) => (item.id === itemId ? { ...item, done: !item.done } : item));
+  await supabase.from("email_threads").update({ ai_checklist: updated }).eq("id", threadId);
+  revalidateInboxViews();
+}
+
+/** Dismisses an AI-suggested action that isn't actually relevant. */
+export async function removeChecklistItem(threadId: string, itemId: string) {
+  const supabase = await createClient();
+  const { data: thread } = await supabase.from("email_threads").select("ai_checklist").eq("id", threadId).single();
+  if (!thread) return;
+  const checklist = (thread.ai_checklist as { id: string; text: string; done: boolean }[]) ?? [];
+  await supabase.from("email_threads").update({ ai_checklist: checklist.filter((item) => item.id !== itemId) }).eq("id", threadId);
+  revalidateInboxViews();
+}
+
 /** Finds @FullName mentions in a note and notifies each matched profile. Does not change assignee. */
 async function notifyMentions(threadId: string, body: string, subject: string | null) {
   const profiles = await getProfiles();

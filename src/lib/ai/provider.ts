@@ -36,6 +36,8 @@ const ClassificationSchema = z.object({
   shopify_customer_id: z.string().nullable(),
   shopify_order_id: z.string().nullable(),
   shopify_match_confidence: z.enum(["confirmed"]).nullable(),
+  /** Concrete, case-specific actions only (e.g. "Replace damaged item", "Wait for customer reply") — empty when nothing genuinely useful, never filler. */
+  next_actions: z.array(z.string()).default([]),
 });
 
 export type ClassificationResult = z.infer<typeof ClassificationSchema>;
@@ -75,6 +77,12 @@ const MAX_MESSAGES = 20;
 function truncateBody(body: string): string {
   if (body.length <= MAX_MESSAGE_CHARS) return body;
   return body.slice(0, MAX_MESSAGE_CHARS) + "\n[...truncated, message continues...]";
+}
+
+/** Gmail headers store "Display Name <email@domain.com>" — pull out just the address for anything that needs a real email (Shopify lookups). Falls back to the raw string if there's no angle-bracket form. */
+export function extractEmail(raw: string): string {
+  const match = raw.match(/<([^>]+)>/);
+  return (match ? match[1] : raw).trim();
 }
 
 function conversationText(thread: ThreadForAI): string {
@@ -121,7 +129,9 @@ issue_type: for category "customer", pick one of damaged_product, wrong_product,
 
 status: needs_reply (external party is waiting on us), needs_review (something needs a human decision but isn't simply "reply"), in_progress (actively being worked, not just waiting for a reply), or waiting (we're waiting on an external party or a follow-up date — only set suggested_follow_up_date in that case).
 
-Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Be concise: 1-2 sentences. When genuinely unsure about the owner, return owner: null rather than guessing.
+Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Cover: what the actual issue/topic is, what (if anything) has already been resolved or agreed, and what we're currently waiting on or need to decide — 2-4 sentences, not a single generic line. When genuinely unsure about the owner, return owner: null rather than guessing.
+
+next_actions: 0-4 short, concrete, case-specific actions inferred from THIS thread's actual content and status — e.g. "Replace damaged item", "Check order #1234 status", "Wait for customer to confirm size", "Hand off to Adam — technical issue". Never generic filler like "Follow up" with no basis, and never pad the list to look complete — an empty array is correct when nothing concrete is genuinely needed beyond a plain reply.
 
 Shopify matching: call look_up_shopify_customer ONLY when the thread is plausibly a real end-customer (not a supplier, courier, or automated system) asking about their own order/shipping/product/return/payment, AND you can identify that specific customer's own email address (never info@artbridge.hu, never a courier/supplier/no-reply address like GLS, DHL, a webshop platform, etc.). Most threads do not qualify — when in doubt, skip the lookup and leave the shopify fields null. If you do call it, call it exactly once, WAIT for its actual result, and only THEN produce classify_email_thread in a separate response — never call both tools in the same turn, since that means you're guessing the outcome rather than using it. Use the result to set shopify_customer_id, and shopify_order_id only if the thread clearly refers to one specific order from the returned list. Set shopify_match_confidence to "confirmed" only when the tool actually returned a match; otherwise leave all three null. Never invent a Shopify ID without a real tool result.`;
 }
@@ -161,6 +171,7 @@ const CLASSIFY_TOOL: Anthropic.Tool = {
       shopify_customer_id: { type: ["string", "null"], description: "Only from a real look_up_shopify_customer result" },
       shopify_order_id: { type: ["string", "null"], description: "Only from a real look_up_shopify_customer result" },
       shopify_match_confidence: { type: ["string", "null"], enum: ["confirmed", null] },
+      next_actions: { type: "array", items: { type: "string" }, description: "0-4 concrete, case-specific actions — empty array when nothing genuine is needed" },
     },
     required: [
       "should_create_case",
@@ -176,6 +187,7 @@ const CLASSIFY_TOOL: Anthropic.Tool = {
       "shopify_customer_id",
       "shopify_order_id",
       "shopify_match_confidence",
+      "next_actions",
     ],
   },
 };
@@ -183,7 +195,7 @@ const CLASSIFY_TOOL: Anthropic.Tool = {
 /** Executes the real Shopify lookup and returns a compact, model-readable result — never fabricated, and explicit about not_connected/not_found so the model doesn't treat silence as a match. */
 async function runShopifyLookupTool(email: string): Promise<string> {
   try {
-    const match = await findShopifyCustomerByEmail(email);
+    const match = await findShopifyCustomerByEmail(extractEmail(email));
     if (!match) return JSON.stringify({ found: false });
     return JSON.stringify({
       found: true,
@@ -293,13 +305,23 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
 
 async function buildDraftSystemPrompt(): Promise<string> {
   const global = await getAiInstruction("global");
-  return `You draft email replies for Artbridge, sent from info@artbridge.hu. Tone: human, concise, friendly, helpful, direct — never corporate or overly verbose. Reply in the same language the conversation is in (natural Hungarian for Hungarian threads, English for English threads). Write only the reply body — no subject line, no "Dear ..." boilerplate signature block beyond a brief natural sign-off, no explanation of what you did.
+  return `You draft email replies for Artbridge, sent from info@artbridge.hu. Tone: human, concise, friendly, helpful, direct — never corporate or overly verbose. Reply in the same language the conversation is in (natural Hungarian for Hungarian threads, English for English threads). Write only the reply body — no subject line, no "Dear ..." boilerplate signature block beyond a brief natural sign-off, no explanation of what you did. If real Shopify customer/order context is provided below, use it naturally where relevant (e.g. referencing the actual order number/status) — never invent order details that weren't given to you.
 
 ${global}`;
 }
 
+export interface ShopifyDraftContext {
+  customerName: string;
+  ordersCount: number;
+  recentOrders: { name: string; createdAt: string; fulfillmentStatus: string | null }[];
+}
+
 /** Generates a reply draft body for a thread. Never sends anything — the caller is responsible for the explicit send action. */
-export async function generateReplyDraft(thread: ThreadForAI): Promise<string> {
+export async function generateReplyDraft(thread: ThreadForAI, shopifyContext?: ShopifyDraftContext | null): Promise<string> {
+  const contextBlock = shopifyContext
+    ? `\n\nReal Shopify context for this customer (use only what's relevant, never invent beyond this):\nCustomer: ${shopifyContext.customerName}\nOrders: ${shopifyContext.ordersCount}\n${shopifyContext.recentOrders.map((o) => `- ${o.name} (${o.createdAt.slice(0, 10)}) — ${o.fulfillmentStatus ?? "unknown status"}`).join("\n")}`
+    : "";
+
   const message = await client().messages.create({
     model: DRAFT_MODEL,
     max_tokens: 1024,
@@ -309,7 +331,7 @@ export async function generateReplyDraft(thread: ThreadForAI): Promise<string> {
         role: "user",
         content: `Subject: ${thread.subject ?? "(no subject)"}\n\n${conversationText(
           thread
-        )}\n\nWrite the reply to the most recent inbound message.`,
+        )}${contextBlock}\n\nWrite the reply to the most recent inbound message.`,
       },
     ],
   });

@@ -9,7 +9,8 @@ import { getGmailConnectionStatus } from "@/lib/gmail/status";
 import { getShopifyConnectionStatus } from "@/lib/shopify/status";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import { TicketHeader } from "@/components/communication/ticket-header";
-import { TicketMessages } from "@/components/communication/ticket-messages";
+import { AiCasePanel } from "@/components/communication/ai-case-panel";
+import { ConversationPanel } from "@/components/communication/conversation-panel";
 import { ReplyComposer } from "@/components/communication/reply-composer";
 import { TicketSidebar } from "@/components/communication/ticket-sidebar";
 
@@ -48,21 +49,11 @@ export default async function ThreadDetailPage({
 
         <TicketHeader thread={thread} />
 
-        {thread.ai_summary && (
-          <div className="rounded-xl border border-[#eeeeee] bg-[#fafafa] p-3">
-            <p className="text-[12px] font-semibold uppercase tracking-wide text-[#9aa0a8]">AI summary</p>
-            <p className="mt-1 text-[13.5px] text-[#3d4451]">{thread.ai_summary}</p>
-            {thread.suggested_next_action && (
-              <p className="mt-2 text-[13px] text-[#5a616c]">
-                <span className="font-medium">Suggested next action:</span> {thread.suggested_next_action}
-              </p>
-            )}
-          </div>
-        )}
+        <AiCasePanel threadId={thread.id} summary={thread.ai_summary} checklist={thread.ai_checklist} />
 
-        <TicketMessages messages={messages} />
+        <ConversationPanel messages={messages} />
 
-        <ReplyComposer threadId={thread.id} gmailConnected={gmailStatus.connected} />
+        <ReplyComposer threadId={thread.id} gmailConnected={gmailStatus.connected} initialDraft={thread.draft_reply} />
       </div>
 
       <TicketSidebar thread={thread} profiles={profiles} shopifyMatch={shopifyMatch} shopifyConnected={shopifyStatus.connected} />
