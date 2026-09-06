@@ -236,15 +236,47 @@ export interface SyncResult {
   errors: number;
 }
 
-/** One-time backfill for the last `days` days. Safe to re-run — upserts by gmail_thread_id. */
+// Live-fetching + classifying each thread from Gmail is slow enough that an
+// unbounded loop over a real 30-day backlog reliably exceeds Vercel's
+// serverless time limit — which silently prevented last_history_id from
+// EVER being set (the update ran after the loop, so a timeout meant it
+// never ran at all), permanently trapping every sync in expensive
+// full-rescan mode instead of graduating to cheap incremental syncs.
+const INITIAL_SYNC_BOUND = 60;
+
+/** One-time backfill for the last `days` days. Bounded and resumable — safe to re-run, upserts by gmail_thread_id. */
 export async function runInitialSync(days = 30): Promise<SyncResult> {
   const admin = createAdminClient();
   const myEmail = await getConnectedEmail(admin);
+
+  const { data: integration } = await admin
+    .from("gmail_integration")
+    .select("id")
+    .order("connected_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Capture historyId FIRST, before the (possibly-interrupted) backfill loop
+  // runs, so future syncs can go straight to cheap incremental mode instead
+  // of being stuck re-scanning the last `days` days forever. Gmail returns
+  // threads for a plain date-range query most-recent-first, so a bounded
+  // slice still reliably covers the newest activity (e.g. a reply that just
+  // came in) even though older backlog threads may need another run.
+  if (integration) {
+    try {
+      const historyId = await getCurrentHistoryId();
+      const { error } = await admin.from("gmail_integration").update({ last_history_id: historyId }).eq("id", integration.id);
+      if (error) console.error("[sync] failed to persist last_history_id", error.message);
+    } catch (err) {
+      console.error("[sync] failed to capture current historyId", err);
+    }
+  }
+
   const threadIds = await listRecentThreadIds(days);
 
   let processed = 0;
   let errors = 0;
-  for (const id of threadIds) {
+  for (const id of threadIds.slice(0, INITIAL_SYNC_BOUND)) {
     try {
       const fetched = await getThread(id, myEmail);
       await upsertThread(admin, fetched);
@@ -255,12 +287,10 @@ export async function runInitialSync(days = 30): Promise<SyncResult> {
     }
   }
 
-  const historyId = await getCurrentHistoryId();
-  await admin
-    .from("gmail_integration")
-    .update({ last_synced_at: new Date().toISOString(), last_history_id: historyId })
-    .order("connected_at", { ascending: false })
-    .limit(1);
+  if (integration) {
+    const { error } = await admin.from("gmail_integration").update({ last_synced_at: new Date().toISOString() }).eq("id", integration.id);
+    if (error) console.error("[sync] failed to persist last_synced_at", error.message);
+  }
 
   return { threadsProcessed: processed, errors };
 }
