@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { GMAIL_SCOPES } from "@/lib/gmail/client";
 import { SHOPIFY_SCOPES } from "@/lib/shopify/client";
+import { isKlaviyoConfigured } from "@/lib/klaviyo/client";
 
 export type IntegrationHealth = "connected" | "needs_attention" | "not_connected";
 
@@ -147,23 +148,26 @@ async function getShopifyIntegration(): Promise<IntegrationStatus> {
 }
 
 function getKlaviyoIntegration(): IntegrationStatus {
+  const configured = isKlaviyoConfigured();
   return {
     id: "klaviyo",
     name: "Klaviyo",
-    status: "not_connected",
+    status: configured ? "connected" : "not_connected",
     accountIdentity: null,
     lastSync: null,
     lastError: null,
     capabilities: [
-      { key: "canReadKlaviyoCampaigns", label: "Read campaigns", available: false },
+      { key: "canReadKlaviyoCampaigns", label: "Read campaigns", available: configured },
       { key: "canWriteKlaviyoCampaigns", label: "Create/update campaigns", available: false },
       { key: "canSendKlaviyoCampaign", label: "Schedule/send", available: false },
-      { key: "canReadKlaviyoSegments", label: "Read lists/segments", available: false },
+      { key: "canReadKlaviyoSegments", label: "Read lists/segments", available: configured },
       { key: "canReadKlaviyoFlows", label: "Read Flows", available: false },
       { key: "canReadKlaviyoPerformance", label: "Read performance", available: false },
     ],
     dependentModules: ["Email Marketing"],
-    manageNote: "Not connected yet — Email Marketing will show a real Connect action once this integration is built.",
+    manageNote: configured
+      ? "Connected via a read-only private API key — set/rotate KLAVIYO_API_KEY to change."
+      : "Not connected yet — add a Klaviyo private API key (Klaviyo → Settings → API Keys, read-only scopes) as the KLAVIYO_API_KEY environment variable.",
   };
 }
 
