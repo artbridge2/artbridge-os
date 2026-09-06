@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -125,8 +126,7 @@ export function AppSidebar({
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-[#eeeeee] bg-white">
       <div className="px-6 pb-5 pt-6">
-        <p className="text-[15px] font-extrabold tracking-[0.12em] text-[#12181f]">ARTBRIDGE</p>
-        <p className="-mt-0.5 text-[10px] font-medium tracking-[0.2em] text-[#a8adb5]">OS</p>
+        <Image src="/artbridge-logo.png" alt="Artbridge" width={1000} height={232} className="h-6 w-auto" priority />
       </div>
 
       <nav className="flex flex-1 flex-col overflow-y-auto px-3">
