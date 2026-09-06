@@ -9,10 +9,7 @@ import { SettingsTabs } from "@/components/settings/settings-tabs";
 const CAPABILITY_LABELS: Record<string, string> = {
   communication_classify: "Communication — triage/classify",
   communication_draft: "Communication — reply drafts",
-  artist_research_turn: "Artist Research — discovery",
-  artist_research_extract: "Artist Research — extraction",
-  artist_research_deep_dive: "Artist Research — deep dive",
-  artist_outreach_draft: "Artist Research — outreach draft",
+  artist_outreach_draft: "Artists — outreach draft",
 };
 
 function formatUsd(n: number): string {

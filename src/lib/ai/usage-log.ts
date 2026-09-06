@@ -20,7 +20,7 @@ function estimateCostUsd(model: string, inputTokens: number, outputTokens: numbe
 }
 
 export interface AiUsageMeta {
-  /** e.g. "communication_classify", "communication_draft", "artist_research_turn" */
+  /** e.g. "communication_classify", "communication_draft", "artist_outreach_draft" */
   capability: string;
   relatedObjectId?: string | null;
 }

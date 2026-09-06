@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
-import { classifyThread, extractEmail, generateReplyDraft, type ThreadForAI } from "@/lib/ai/provider";
+import { classifyThread, extractEmail, generateReplyDraft, generateReplyDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
 import { applyClassification, resolveOwnerProfileId } from "@/lib/gmail/sync";
 import { sendReply as sendGmailReply } from "@/lib/gmail/client";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
@@ -273,8 +273,7 @@ export async function setFollowUpDate(threadId: string, followUpAt: string | nul
   revalidateInboxViews();
 }
 
-/** Prepares an AI draft and returns its text directly so the reply composer can drop it straight in. */
-export async function generateDraft(threadId: string): Promise<string> {
+async function threadForAI(threadId: string): Promise<ThreadForAI | null> {
   const supabase = await createClient();
 
   const { data: thread } = await supabase
@@ -282,7 +281,7 @@ export async function generateDraft(threadId: string): Promise<string> {
     .select("id, subject")
     .eq("id", threadId)
     .single();
-  if (!thread) return "";
+  if (!thread) return null;
 
   const { data: messages } = await supabase
     .from("email_messages")
@@ -291,7 +290,7 @@ export async function generateDraft(threadId: string): Promise<string> {
     .eq("is_internal_note", false)
     .order("sent_at", { ascending: true });
 
-  const draft = await generateReplyDraft({
+  return {
     subject: thread.subject,
     participants: [],
     messages: (messages ?? []).map((m) => ({
@@ -300,14 +299,33 @@ export async function generateDraft(threadId: string): Promise<string> {
       sentAt: m.sent_at,
       isInbound: m.is_inbound,
     })),
-  }, undefined, threadId);
+  };
+}
 
+async function saveDraft(threadId: string, draft: string) {
+  const supabase = await createClient();
   await supabase
     .from("email_threads")
     .update({ draft_reply: draft, draft_generated_at: new Date().toISOString() })
     .eq("id", threadId);
-
   revalidateInboxViews();
+}
+
+/** Prepares an AI draft and returns its text directly so the reply composer can drop it straight in. */
+export async function generateDraft(threadId: string): Promise<string> {
+  const thread = await threadForAI(threadId);
+  if (!thread) return "";
+  const draft = await generateReplyDraft(thread, undefined, threadId);
+  await saveDraft(threadId, draft);
+  return draft;
+}
+
+/** Same as generateDraft, but guided by a short human brief (spec §7 — "Write from brief"). */
+export async function generateDraftFromBrief(threadId: string, brief: string): Promise<string> {
+  const thread = await threadForAI(threadId);
+  if (!thread) return "";
+  const draft = await generateReplyDraftFromBrief(thread, brief, undefined, threadId);
+  await saveDraft(threadId, draft);
   return draft;
 }
 

@@ -416,3 +416,110 @@ export async function generateReplyDraft(thread: ThreadForAI, shopifyContext?: S
   );
   return textBlock?.text?.trim() ?? "";
 }
+
+export interface ArtistDraftContext {
+  name: string;
+  bio: string | null;
+  technique: string | null;
+  location: string | null;
+}
+
+function artistContextBlock(artist: ArtistDraftContext): string {
+  const facts = [
+    artist.bio && `Bio: ${artist.bio}`,
+    artist.technique && `Technique: ${artist.technique}`,
+    artist.location && `Location: ${artist.location}`,
+  ].filter(Boolean);
+  return facts.length ? `\n\nWhat we know about this artist (use only what's relevant, never invent beyond this):\nName: ${artist.name}\n${facts.join("\n")}` : `\n\nArtist name: ${artist.name}`;
+}
+
+/**
+ * Drafts an Artist outreach email — either the opening message (no prior
+ * thread) or a reply within one, using the same shared draft system prompt
+ * as Communication. Framing differs from generateReplyDraft because a cold
+ * open isn't "a reply to the most recent inbound message".
+ */
+export async function generateArtistOutreachDraft(
+  artist: ArtistDraftContext,
+  thread: ThreadForAI,
+  relatedObjectId?: string
+): Promise<string> {
+  const isOpening = thread.messages.length === 0;
+  const instruction = isOpening
+    ? "Write a short, warm opening outreach email inviting this artist to work with Artbridge — no prior conversation exists yet. Write only the message body — do not include a subject line, the subject is entered separately."
+    : "Write the reply to the most recent inbound message.";
+
+  const message = await loggedCreate(client(), {
+    model: DRAFT_MODEL,
+    max_tokens: 1024,
+    system: await buildDraftSystemPrompt(),
+    messages: [
+      {
+        role: "user",
+        content: `Subject: ${thread.subject ?? "(no subject)"}\n\n${conversationText(thread)}${artistContextBlock(artist)}\n\n${instruction}`,
+      },
+    ],
+  }, { capability: "artist_outreach_draft", relatedObjectId });
+
+  const textBlock = message.content.find((block): block is Anthropic.TextBlock => block.type === "text");
+  return textBlock?.text?.trim() ?? "";
+}
+
+/** Brief-guided variant of generateArtistOutreachDraft, same relationship as generateReplyDraftFromBrief has to generateReplyDraft. */
+export async function generateArtistOutreachDraftFromBrief(
+  artist: ArtistDraftContext,
+  thread: ThreadForAI,
+  brief: string,
+  relatedObjectId?: string
+): Promise<string> {
+  const isOpening = thread.messages.length === 0;
+  const instruction = isOpening
+    ? "Write a short, warm opening outreach email inviting this artist to work with Artbridge — no prior conversation exists yet. Write only the message body — do not include a subject line, the subject is entered separately."
+    : "Write the reply to the most recent inbound message.";
+
+  const message = await loggedCreate(client(), {
+    model: DRAFT_MODEL,
+    max_tokens: 1024,
+    system: await buildDraftSystemPrompt(),
+    messages: [
+      {
+        role: "user",
+        content: `Subject: ${thread.subject ?? "(no subject)"}\n\n${conversationText(thread)}${artistContextBlock(artist)}\n\nInstruction from the sender for this email — follow it, but keep using the real context above rather than ignoring it:\n${brief}\n\n${instruction}`,
+      },
+    ],
+  }, { capability: "artist_outreach_draft", relatedObjectId });
+
+  const textBlock = message.content.find((block): block is Anthropic.TextBlock => block.type === "text");
+  return textBlock?.text?.trim() ?? "";
+}
+
+/** Same as generateReplyDraft, but guided by a short human brief on top of the existing context — the brief steers the reply, it doesn't replace what's already known about the thread. */
+export async function generateReplyDraftFromBrief(
+  thread: ThreadForAI,
+  brief: string,
+  shopifyContext?: ShopifyDraftContext | null,
+  relatedObjectId?: string
+): Promise<string> {
+  const contextBlock = shopifyContext
+    ? `\n\nReal Shopify context for this customer (use only what's relevant, never invent beyond this):\nCustomer: ${shopifyContext.customerName}\nOrders: ${shopifyContext.ordersCount}\n${shopifyContext.recentOrders.map((o) => `- ${o.name} (${o.createdAt.slice(0, 10)}) — ${o.fulfillmentStatus ?? "unknown status"}`).join("\n")}`
+    : "";
+
+  const message = await loggedCreate(client(), {
+    model: DRAFT_MODEL,
+    max_tokens: 1024,
+    system: await buildDraftSystemPrompt(),
+    messages: [
+      {
+        role: "user",
+        content: `Subject: ${thread.subject ?? "(no subject)"}\n\n${conversationText(
+          thread
+        )}${contextBlock}\n\nInstruction from the sender for this reply — follow it, but keep using the real context above rather than ignoring it:\n${brief}\n\nWrite the reply to the most recent inbound message.`,
+      },
+    ],
+  }, { capability: "communication_draft", relatedObjectId });
+
+  const textBlock = message.content.find(
+    (block): block is Anthropic.TextBlock => block.type === "text"
+  );
+  return textBlock?.text?.trim() ?? "";
+}

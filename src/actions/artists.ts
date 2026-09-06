@@ -8,6 +8,7 @@ import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { sendNewMessage, sendReply as sendGmailReply } from "@/lib/gmail/client";
 import { findPossibleDuplicates, type DuplicateCandidateInput } from "@/lib/artists/duplicate-detection";
+import { generateArtistOutreachDraft, generateArtistOutreachDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
 import type { ArtistLink, ArtistStatus, FitAssessment, RejectionReason } from "@/lib/types";
 
 function revalidateArtistViews() {
@@ -457,4 +458,42 @@ export async function replyArtistOutreach(threadId: string, body: string) {
   await supabase.from("artist_outreach_threads").update({ last_message_at: now }).eq("id", threadId);
 
   revalidateArtistViews();
+}
+
+async function outreachContext(artistId: string, threadId: string | null): Promise<{ artist: { name: string; bio: string | null; technique: string | null; location: string | null }; thread: ThreadForAI } | null> {
+  const supabase = await createClient();
+  const { data: artist } = await supabase.from("artists").select("full_name, artist_name, bio, technique, location").eq("id", artistId).single();
+  if (!artist) return null;
+
+  let messages: ThreadForAI["messages"] = [];
+  let subject: string | null = null;
+  if (threadId) {
+    const { data: thread } = await supabase.from("artist_outreach_threads").select("subject").eq("id", threadId).single();
+    subject = thread?.subject ?? null;
+    const { data: rows } = await supabase
+      .from("artist_outreach_messages")
+      .select("sender, sanitized_body, sent_at, is_inbound")
+      .eq("thread_id", threadId)
+      .order("sent_at", { ascending: true });
+    messages = (rows ?? []).map((m) => ({ sender: m.sender, body: m.sanitized_body ?? "", sentAt: m.sent_at, isInbound: m.is_inbound }));
+  }
+
+  return {
+    artist: { name: artist.artist_name || artist.full_name, bio: artist.bio, technique: artist.technique, location: artist.location },
+    thread: { subject, participants: [], messages },
+  };
+}
+
+/** "Use AI draft" for the Artist Conversation card (spec §7) — writes an opening outreach email if no thread exists yet, otherwise a reply. */
+export async function generateArtistDraft(artistId: string, threadId: string | null): Promise<string> {
+  const ctx = await outreachContext(artistId, threadId);
+  if (!ctx) return "";
+  return generateArtistOutreachDraft(ctx.artist, ctx.thread, artistId);
+}
+
+/** "Write from brief" for the Artist Conversation card (spec §7). */
+export async function generateArtistDraftFromBrief(artistId: string, threadId: string | null, brief: string): Promise<string> {
+  const ctx = await outreachContext(artistId, threadId);
+  if (!ctx) return "";
+  return generateArtistOutreachDraftFromBrief(ctx.artist, ctx.thread, brief, artistId);
 }
