@@ -91,7 +91,7 @@ export async function applyClassification(
   if (!result.should_create_case && !lowConfidence) {
     const { error } = await admin
       .from("email_threads")
-      .update({ suppressed: true, classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
+      .update({ suppressed: true, suppressed_by: "ai", classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
       .eq("id", threadId);
     // A silently-ignored write error left threads permanently stuck at
     // classification_version 0 with no visible failure anywhere — surface it
@@ -136,6 +136,7 @@ export async function applyClassification(
     .from("email_threads")
     .update({
       suppressed: false,
+      suppressed_by: null,
       suggested_artist_application: result.is_artist_application,
       ...(categoryLocked ? {} : { category: result.category }),
       issue_type: result.issue_type,
@@ -323,7 +324,7 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
 
   const { data: existing } = await admin
     .from("email_threads")
-    .select("id, last_classified_message_id, status, owner_id, category, category_source, status_source, priority_source, suppressed, classification_version")
+    .select("id, last_classified_message_id, status, owner_id, category, category_source, status_source, priority_source, suppressed, suppressed_by, classification_version")
     .eq("gmail_thread_id", fetched.gmailThreadId)
     .maybeSingle();
 
@@ -384,11 +385,15 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
   if (!existing) {
     const ingestion = await decideIngestion({ sender: threadRow.sender, subject: fetched.subject });
     if (ingestion.suppressed) {
-      await admin.from("email_threads").update({ suppressed: true }).eq("id", thread.id);
-      return; // Suppressed threads are never classified further.
+      await admin.from("email_threads").update({ suppressed: true, suppressed_by: "ingestion_rule" }).eq("id", thread.id);
+      return; // Deterministic rule match — genuinely permanent, no reconsideration needed.
     }
   } else if (existing.suppressed) {
-    return; // Stays suppressed once decided — no reclassification churn.
+    if (existing.suppressed_by === "ingestion_rule") return;
+    // AI-suppressed (should_create_case=false from a possibly-since-improved
+    // classifier) — worth reconsidering once CLASSIFICATION_VERSION bumps,
+    // unlike a deterministic ingestion-rule suppression. Falls through to the
+    // normal classification-staleness check below instead of exiting here.
   }
 
   const alreadyClassified =
@@ -651,10 +656,14 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   // length, whether a Shopify lookup round trip happens), so pace by actual
   // elapsed time and stop with a safety margin before Vercel's hard cutoff
   // instead of risking a mid-call timeout that loses whatever didn't commit.
+  // Reconsiders never-suppressed stale threads AND AI-suppressed ones (a
+  // should_create_case=false verdict from a possibly-since-improved
+  // classifier) — but never an ingestion_rule suppression, which is a
+  // deterministic admin/heuristic match that stays permanent by design.
   const { data: threads } = await admin
     .from("email_threads")
     .select("id, subject, participants, owner_id, sender, category_source, status_source, priority_source")
-    .eq("suppressed", false)
+    .or("suppressed.eq.false,suppressed_by.eq.ai")
     .neq("classification_version", CLASSIFICATION_VERSION)
     .order("created_at", { ascending: true })
     .limit(50);
@@ -713,7 +722,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   const { count: remaining } = await admin
     .from("email_threads")
     .select("id", { count: "exact", head: true })
-    .eq("suppressed", false)
+    .or("suppressed.eq.false,suppressed_by.eq.ai")
     .neq("classification_version", CLASSIFICATION_VERSION);
 
   return {

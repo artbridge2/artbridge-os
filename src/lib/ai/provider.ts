@@ -18,7 +18,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // v3->v4: forces reprocessing under the Starred-calibration corrections
 // (customer replies to automated emails, cold-outreach false positives)
 // saved to communication_business_rules/communication_routing as v2.
-export const CLASSIFICATION_VERSION = 4;
+// v4->v5: is_artist_application now judges by how a thread ORIGINATED
+// rather than its latest tone — real applications that were already deep
+// into onboarding (commission-rate talk, contracts) were being missed
+// because they no longer "sounded like" a first-time pitch. Combined with
+// sync.ts now reconsidering AI-suppressed (not just never-suppressed)
+// stale threads, this is the reconciliation pass: real applications that
+// an older/worse prompt mis-suppressed get a fair second look instead of
+// staying permanently hidden.
+export const CLASSIFICATION_VERSION = 5;
 
 const CATEGORIES = ["customer", "artist", "developer", "supplier", "internal", "other"] as const;
 const STATUSES = ["needs_reply", "needs_review", "in_progress", "waiting"] as const;
@@ -205,7 +213,7 @@ issue_type: for category "customer", pick one of damaged_product, wrong_product,
 
 status: needs_reply (external party is waiting on us), needs_review (something needs a human decision but isn't simply "reply"), in_progress (actively being worked, not just waiting for a reply), or waiting (we're waiting on an external party or a follow-up date — only set suggested_follow_up_date in that case).
 
-is_artist_application: true ONLY when this is a genuine first-time proposal/application from someone wanting Artbridge to sell their art (portfolio links, a pitch to collaborate, "I'd like to apply" language) — this drives automatic Artist-record creation, so be conservative. False for an existing/known artist's routine correspondence (a delivery question, a commission update, general chat), even though category is still "artist". When genuinely unsure whether it's a real application, set confidence low rather than guessing is_artist_application true — a low-confidence thread is routed to a human review queue instead of being auto-created as an Artist.
+is_artist_application: judge by how this THREAD ORIGINATED, not its most recent tone. True when the EARLIEST message in the thread is a cold, unsolicited pitch/application from someone proposing to have Artbridge sell their art (portfolio links, "I'd like to apply/collaborate" language) AND you have no indication this person already has an Artbridge artist record. Stay true for the rest of that same thread even once the conversation has moved on to onboarding logistics, commission-rate negotiation, contracts, or upload instructions — an application that's now mid-onboarding is still an application; the whole point is that this relationship needs an Artist record, and it's especially important to catch these once negotiation is already underway rather than only at the very first message. Only false when the correspondence is with someone who was CLEARLY already an established, onboarded Artbridge artist before this specific thread even started (e.g. an existing artist's thread about a delivery issue, a technical bug report, or something unrelated to onboarding) — not merely because the tone now sounds operational. category "internal" threads (e.g. the team discussing a prospective artist amongst themselves) are never an application regardless of who's mentioned in them, since the artist herself isn't the sender. When genuinely unsure whether it's a real, not-yet-recorded application, set confidence low rather than guessing false — a low-confidence thread is routed to a human review queue instead of either being auto-created as an Artist or silently missed.
 
 Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Cover: what the actual issue/topic is, what (if anything) has already been resolved or agreed, and what we're currently waiting on or need to decide — 2-4 sentences, not a single generic line. When genuinely unsure about the owner, return owner: null rather than guessing.
 

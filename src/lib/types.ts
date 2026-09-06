@@ -224,6 +224,8 @@ export interface EmailThread {
   suggested_artist_application: boolean;
   /** Ingestion decided this shouldn't be an active case (newsletter, automated no-reply, ...). Never shown in normal queues. */
   suppressed: boolean;
+  /** 'ingestion_rule' = a deterministic rule/heuristic match, genuinely permanent. 'ai' = a should_create_case=false verdict, reconsidered when CLASSIFICATION_VERSION bumps. */
+  suppressed_by: "ingestion_rule" | "ai" | null;
   labels: string[];
   shopify_customer_id: string | null;
   shopify_order_id: string | null;
