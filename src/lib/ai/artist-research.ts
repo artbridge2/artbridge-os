@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { getAiInstruction } from "./instructions";
 
 /**
  * Provider-abstracted artist research (spec §23). Everything the app needs
@@ -23,7 +24,13 @@ export function isResearchProviderConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
-const RESEARCH_SYSTEM_PROMPT = `You are Artbridge's artist-research assistant. Artbridge is a curated online gallery/print shop that represents independent artists.
+async function buildResearchSystemPrompt(): Promise<string> {
+  const [global, artistResearch] = await Promise.all([getAiInstruction("global"), getAiInstruction("artist_research")]);
+  return `You are Artbridge's artist-research assistant.
+
+${global}
+
+${artistResearch}
 
 Your job: given a research brief and the conversation so far, use web search to find real, currently-active artists who plausibly fit the brief. For each artist you find, report in your text response:
 - Full name and artist/display name if different
@@ -39,6 +46,7 @@ Your job: given a research brief and the conversation so far, use web search to 
 Never invent facts, emails, exhibitions or biographical details you did not find. If you're not confident about something, say so explicitly rather than guessing. Treat follow-up messages as refinements of the same research thread (e.g. "these are too commercial" should narrow future results, not start over) — use the conversation history to understand what's being refined.
 
 Write clearly, in a numbered or clearly-separated list per artist, since a later step will parse this into structured records.`;
+}
 
 export interface ResearchTurnInput {
   history: { role: "user" | "assistant"; content: string }[];
@@ -50,7 +58,7 @@ export async function runResearchTurn(input: ResearchTurnInput): Promise<string>
   const response = await client().messages.create({
     model: RESEARCH_MODEL,
     max_tokens: 4096,
-    system: RESEARCH_SYSTEM_PROMPT,
+    system: await buildResearchSystemPrompt(),
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 } as unknown as Anthropic.Tool],
     messages: [
       ...input.history.map((h) => ({ role: h.role, content: h.content })),

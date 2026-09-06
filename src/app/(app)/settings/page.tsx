@@ -1,13 +1,16 @@
+import { redirect } from "next/navigation";
 import { getCurrentProfile } from "@/lib/dal";
 import { getAreas } from "@/lib/queries";
-import { getGmailConnectionStatus } from "@/lib/gmail/status";
-import { getShopifyConnectionStatus } from "@/lib/shopify/status";
+import { hasCapability } from "@/lib/permissions";
+import { getIntegrationsOverview } from "@/lib/integrations/registry";
 import { getIngestionRules } from "@/lib/queries-settings";
-import { addIngestionRule, deleteIngestionRule } from "@/actions/settings";
+import { addIngestionRule, deleteIngestionRule, disconnectGmail, disconnectShopify } from "@/actions/settings";
 import { signOut } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { AddAreaForm } from "@/components/add-area-form";
 import { GmailSyncButton } from "@/components/gmail-sync-button";
+import { IntegrationCard } from "@/components/settings/integration-card";
+import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { ROLE_LABELS } from "@/lib/types";
 
 const GMAIL_STATUS_MESSAGES: Record<string, string> = {
@@ -28,143 +31,110 @@ export default async function SettingsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const [profile, areas, shopify, ingestionRules] = await Promise.all([
-    getCurrentProfile(),
-    getAreas(),
-    getShopifyConnectionStatus(),
-    getIngestionRules(),
-  ]);
-  let gmail: Awaited<ReturnType<typeof getGmailConnectionStatus>> = { connected: false };
-  let gmailError: string | null = null;
-  try {
-    gmail = await getGmailConnectionStatus();
-  } catch (err) {
-    gmailError = err instanceof Error ? err.message : String(err);
-  }
+  const profile = await getCurrentProfile();
+  const canView = await hasCapability(profile, "settings_view");
+  if (!canView) redirect("/");
+  const canManageIntegrations = await hasCapability(profile, "settings_integrations");
+  const showAdminTabs = await hasCapability(profile, "settings_team");
 
-  const gmailMessage =
-    typeof params.gmail === "string" ? GMAIL_STATUS_MESSAGES[params.gmail] : undefined;
-  const shopifyMessage =
-    typeof params.shopify === "string" ? SHOPIFY_STATUS_MESSAGES[params.shopify] : undefined;
-  const isCurator = profile.role === "kurator";
+  const [areas, integrations, ingestionRules] = await Promise.all([
+    getAreas(),
+    getIntegrationsOverview(),
+    canManageIntegrations ? getIngestionRules() : Promise.resolve([]),
+  ]);
+
+  const gmailMessage = typeof params.gmail === "string" ? GMAIL_STATUS_MESSAGES[params.gmail] : undefined;
+  const shopifyMessage = typeof params.shopify === "string" ? SHOPIFY_STATUS_MESSAGES[params.shopify] : undefined;
+
+  const google = integrations.find((i) => i.id === "google")!;
+  const shopify = integrations.find((i) => i.id === "shopify")!;
+  const others = integrations.filter((i) => i.id !== "google" && i.id !== "shopify");
 
   return (
-    <div className="max-w-md space-y-8 pt-6">
-      <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+    <div className="max-w-3xl space-y-6 pt-6">
+      <div>
+        <h1 className="text-[26px] font-bold tracking-tight text-[#12181f]">Settings</h1>
+        <p className="mt-1 text-[14px] text-[#5a616c]">External services, capabilities, and administrative control.</p>
+      </div>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Profil</h2>
-        <p className="text-sm text-muted-foreground">
-          {ROLE_LABELS[profile.role]} · {profile.email}
-        </p>
-        <form action={signOut}>
-          <Button type="submit" variant="outline" size="sm">
-            Kijelentkezés
-          </Button>
+      <SettingsTabs active="/settings" showAdmin={showAdminTabs} />
+
+      <div className="rounded-2xl border border-[#eeeeee] bg-white p-4">
+        <p className="text-[14.5px] font-semibold text-[#12181f]">Profile</p>
+        <p className="mt-1 text-[13.5px] text-[#8a909a]">{ROLE_LABELS[profile.role]} · {profile.email}</p>
+        <form action={signOut} className="mt-2">
+          <Button type="submit" variant="outline" size="sm">Sign out</Button>
         </form>
-      </section>
+      </div>
 
-      {!isCurator && (
-        <>
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">Gmail</h2>
-            {gmailError && (
-              <p className="text-sm text-destructive">Hiba a Gmail állapot lekérésekor: {gmailError}</p>
-            )}
-            {gmailMessage && <p className="text-sm text-muted-foreground">{gmailMessage}</p>}
-            {gmail.connected ? (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  Összekötve: {gmail.connectedEmail}
-                  {gmail.lastSyncedAt && (
-                    <> · utolsó szinkron: {new Date(gmail.lastSyncedAt).toLocaleString("hu-HU")}</>
-                  )}
-                </p>
-                <GmailSyncButton />
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">Még nincs összekötve.</p>
-                <Button size="sm" render={<a href="/api/gmail/connect" />}>
-                  Connect Gmail
-                </Button>
-              </>
-            )}
-          </section>
+      <div className="space-y-4">
+        <p className="text-[13px] font-semibold uppercase tracking-wide text-[#9aa0a8]">Integrations</p>
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">Shopify</h2>
-            {shopifyMessage && <p className="text-sm text-muted-foreground">{shopifyMessage}</p>}
-            {shopify.connected ? (
-              <p className="text-sm text-muted-foreground">Összekötve: {shopify.shopDomain}</p>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">Még nincs összekötve.</p>
-                <Button size="sm" render={<a href="/api/shopify/connect" />}>
-                  Connect Shopify
-                </Button>
-              </>
-            )}
-          </section>
+        {gmailMessage && <p className="text-[13.5px] text-[#5a616c]">{gmailMessage}</p>}
+        {shopifyMessage && <p className="text-[13.5px] text-[#5a616c]">{shopifyMessage}</p>}
 
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold">Communication — Ingestion rules</h2>
-            <p className="text-xs text-muted-foreground">
-              Explicit rules always win over AI/heuristic judgment. E.g. never create a ticket from a
-              sender/domain, or always create one regardless of what the classifier thinks.
-            </p>
-            <ul className="space-y-1.5">
-              {ingestionRules.map((rule) => (
-                <li key={rule.id} className="flex items-center justify-between rounded-md border border-border px-2.5 py-1.5 text-xs">
-                  <span>
-                    <span className="font-medium">{rule.rule_type === "never_create" ? "Never create" : "Always create"}</span>
-                    {" · "}
-                    {rule.match_type}: <code>{rule.pattern}</code>
-                  </span>
-                  <form action={deleteIngestionRule.bind(null, rule.id)}>
-                    <button type="submit" className="text-muted-foreground hover:text-destructive">
-                      Remove
-                    </button>
-                  </form>
-                </li>
-              ))}
-              {ingestionRules.length === 0 && (
-                <li className="text-xs text-muted-foreground">No custom rules yet.</li>
-              )}
-            </ul>
-            <form action={addIngestionRule} className="grid grid-cols-3 gap-1.5">
-              <select name="rule_type" className="h-8 rounded-md border border-input bg-transparent px-2 text-xs" defaultValue="never_create">
-                <option value="never_create">Never create</option>
-                <option value="always_create">Always create</option>
-              </select>
-              <select name="match_type" className="h-8 rounded-md border border-input bg-transparent px-2 text-xs" defaultValue="domain">
-                <option value="sender">Sender email</option>
-                <option value="domain">Domain</option>
-                <option value="subject_pattern">Subject contains</option>
-              </select>
-              <input
-                name="pattern"
-                required
-                placeholder="pattern"
-                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-              />
-              <Button type="submit" size="sm" className="col-span-3">
-                Add rule
-              </Button>
-            </form>
-          </section>
-        </>
+        <IntegrationCard integration={google} canManage={canManageIntegrations} disconnectAction={disconnectGmail} />
+        {google.status === "connected" && canManageIntegrations && (
+          <div className="-mt-2 pl-4">
+            <GmailSyncButton />
+          </div>
+        )}
+
+        <IntegrationCard integration={shopify} canManage={canManageIntegrations} disconnectAction={disconnectShopify} />
+
+        {others.map((integration) => (
+          <IntegrationCard key={integration.id} integration={integration} canManage={canManageIntegrations} />
+        ))}
+      </div>
+
+      {canManageIntegrations && (
+        <div className="rounded-2xl border border-[#eeeeee] bg-white p-4">
+          <p className="text-[14.5px] font-semibold text-[#12181f]">Communication — Ingestion rules</p>
+          <p className="mt-1 text-[13px] text-[#8a909a]">
+            Explicit rules always win over AI/heuristic judgment — e.g. never create a ticket from a sender/domain, or always create one regardless of what the classifier thinks.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {ingestionRules.map((rule) => (
+              <li key={rule.id} className="flex items-center justify-between rounded-md border border-[#eeeeee] px-2.5 py-1.5 text-[13px]">
+                <span>
+                  <span className="font-medium">{rule.rule_type === "never_create" ? "Never create" : "Always create"}</span>
+                  {" · "}
+                  {rule.match_type}: <code>{rule.pattern}</code>
+                </span>
+                <form action={deleteIngestionRule.bind(null, rule.id)}>
+                  <button type="submit" className="text-[#9aa0a8] hover:text-[#e0353b]">Remove</button>
+                </form>
+              </li>
+            ))}
+            {ingestionRules.length === 0 && <li className="text-[13px] text-[#9aa0a8]">No custom rules yet.</li>}
+          </ul>
+          <form action={addIngestionRule} className="mt-3 grid grid-cols-3 gap-1.5">
+            <select name="rule_type" className="h-8 rounded-md border border-input bg-transparent px-2 text-xs" defaultValue="never_create">
+              <option value="never_create">Never create</option>
+              <option value="always_create">Always create</option>
+            </select>
+            <select name="match_type" className="h-8 rounded-md border border-input bg-transparent px-2 text-xs" defaultValue="domain">
+              <option value="sender">Sender email</option>
+              <option value="domain">Domain</option>
+              <option value="subject_pattern">Subject contains</option>
+            </select>
+            <input name="pattern" required placeholder="pattern" className="h-8 rounded-md border border-input bg-transparent px-2 text-xs" />
+            <Button type="submit" size="sm" className="col-span-3">Add rule</Button>
+          </form>
+        </div>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">Area-k</h2>
-        <ul className="space-y-1 text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-[#eeeeee] bg-white p-4">
+        <p className="text-[14.5px] font-semibold text-[#12181f]">Areas</p>
+        <ul className="mt-2 space-y-1 text-[13.5px] text-[#5a616c]">
           {areas.map((area) => (
             <li key={area.id}>{area.name}</li>
           ))}
         </ul>
-        <AddAreaForm />
-      </section>
+        <div className="mt-2">
+          <AddAreaForm />
+        </div>
+      </div>
     </div>
   );
 }

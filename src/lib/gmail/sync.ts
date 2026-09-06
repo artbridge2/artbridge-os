@@ -29,7 +29,7 @@ async function getConnectedEmail(admin: Admin): Promise<string> {
  * Stores/updates one thread + its messages, decides whether it should be an
  * active case (rules first, then AI when configured), and (re)classifies
  * only when the newest message hasn't been classified yet — see cost-control
- * notes in lib/ai/rules.ts / the Communication spec. Never throws for a
+ * notes in the Communication spec (business rules live in Settings → AI). Never throws for a
  * single bad thread — logs and moves on so one malformed email doesn't stop
  * the whole sync.
  */

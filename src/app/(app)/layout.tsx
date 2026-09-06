@@ -5,18 +5,20 @@ import { getNotifications } from "@/lib/queries-notifications";
 import { getTasks } from "@/lib/queries";
 import { getArtistAttentionItems } from "@/lib/attention";
 import { getCampaignStatusCounts } from "@/lib/queries-marketing";
+import { hasCapability } from "@/lib/permissions";
 import { AppSidebar } from "@/components/home/app-sidebar";
 import { Topbar } from "@/components/home/topbar";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const profile = await getCurrentProfile();
 
-  const [communicationCounts, notifications, myTasks, artistAttentionItems, campaignStatusCounts] = await Promise.all([
+  const [communicationCounts, notifications, myTasks, artistAttentionItems, campaignStatusCounts, canSeeSettings] = await Promise.all([
     profile.role === "kurator" ? Promise.resolve(undefined) : getCommunicationCategoryCounts(profile.id),
     getNotifications(profile.id),
     getTasks({ ownerId: profile.id, excludeDone: true }),
     getArtistAttentionItems(profile.id),
     getCampaignStatusCounts(),
+    hasCapability(profile, "settings_view"),
   ]);
 
   return (
@@ -29,7 +31,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         activeCampaignCount={campaignStatusCounts.active ?? 0}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar role={profile.role} notifications={notifications} />
+        <Topbar profile={profile} notifications={notifications} canSeeSettings={canSeeSettings} />
         <main className="flex-1 px-8 pb-10">{children}</main>
       </div>
     </div>
