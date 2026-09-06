@@ -354,6 +354,9 @@ export interface BackfillResult {
   errors: number;
   remaining: number;
   errorSamples?: string[];
+  debugPoolIds?: string[];
+  debugSkippedNoMessages?: string[];
+  debugAttempted?: string[];
 }
 
 /**
@@ -385,9 +388,12 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   let processed = 0;
   let errors = 0;
   const errorSamples: string[] = [];
+  const debugSkippedNoMessages: string[] = [];
+  const debugAttempted: string[] = [];
 
   for (const thread of threads ?? []) {
     if (Date.now() - startedAt > maxBudgetMs) break;
+    debugAttempted.push(thread.id);
     try {
       const { data: messages } = await admin
         .from("email_messages")
@@ -395,7 +401,10 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
         .eq("thread_id", thread.id)
         .order("sent_at", { ascending: true });
 
-      if (!messages || messages.length === 0) continue;
+      if (!messages || messages.length === 0) {
+        debugSkippedNoMessages.push(thread.id);
+        continue;
+      }
 
       const participants = ((thread.participants as { email: string }[] | null) ?? []).map((p) => p.email);
       const newestMessageId = messages.at(-1)?.gmail_message_id ?? null;
@@ -427,7 +436,15 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
     .eq("suppressed", false)
     .neq("classification_version", CLASSIFICATION_VERSION);
 
-  return { processed, errors, remaining: remaining ?? 0, errorSamples: errorSamples.length > 0 ? errorSamples : undefined };
+  return {
+    processed,
+    errors,
+    remaining: remaining ?? 0,
+    errorSamples: errorSamples.length > 0 ? errorSamples : undefined,
+    debugPoolIds: (threads ?? []).slice(0, 5).map((t) => t.id),
+    debugSkippedNoMessages: debugSkippedNoMessages.length > 0 ? debugSkippedNoMessages : undefined,
+    debugAttempted,
+  };
 }
 
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */
