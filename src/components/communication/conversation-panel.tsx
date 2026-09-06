@@ -4,9 +4,13 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { initials } from "@/lib/communication-style";
 import { formatElapsedEn } from "@/lib/dates";
+import { stripQuotedHistory } from "@/lib/quote-strip";
 import type { EmailMessage } from "@/lib/types";
 
-function MessageCard({ message, highlighted }: { message: EmailMessage; highlighted?: boolean }) {
+function MessageCard({ message, highlighted, stripQuotes }: { message: EmailMessage; highlighted?: boolean; stripQuotes?: boolean }) {
+  const rawBody = message.sanitized_body || "(empty message)";
+  const body = stripQuotes ? stripQuotedHistory(rawBody) : rawBody;
+
   return (
     <div
       className="rounded-xl border p-4"
@@ -27,7 +31,7 @@ function MessageCard({ message, highlighted }: { message: EmailMessage; highligh
             )}
             <span className="text-[12.5px] text-[#9aa0a8]">{message.sent_at ? formatElapsedEn(message.sent_at) : ""}</span>
           </div>
-          <p className="mt-1.5 whitespace-pre-wrap text-[14px] text-[#3d4451]">{message.sanitized_body || "(empty message)"}</p>
+          <p className="mt-1.5 whitespace-pre-wrap text-[14px] text-[#3d4451]">{body}</p>
         </div>
       </div>
     </div>
@@ -56,7 +60,7 @@ export function ConversationPanel({ messages }: { messages: EmailMessage[] }) {
         <p className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-[#9aa0a8]">
           {latestInbound ? "Latest incoming email" : "Latest message"}
         </p>
-        <MessageCard message={highlight} highlighted={!!latestInbound} />
+        <MessageCard message={highlight} highlighted={!!latestInbound} stripQuotes />
       </div>
 
       {rest.length > 0 && (
