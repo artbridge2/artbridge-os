@@ -1,12 +1,20 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, Role } from "@/lib/types";
 import { CAPABILITIES, type CapabilityKey } from "@/lib/capabilities-shared";
 
 export { CAPABILITIES, type CapabilityKey };
 
-/** Role default × per-user override, merged. This is the one place "who can do what" is decided. */
-export async function getEffectiveCapabilities(profile: Pick<Profile, "id" | "role">): Promise<Record<CapabilityKey, boolean>> {
+/**
+ * Role default × per-user override, merged. This is the one place "who can
+ * do what" is decided. Wrapped in React's request-scoped `cache()` — the
+ * layout, every page's own permission gate, and shared helpers below all
+ * call this for the same profile within one request, and without dedup
+ * that was N redundant round trips per navigation (relies on `profile`
+ * being the same cached object every caller gets from getCurrentProfile()).
+ */
+export const getEffectiveCapabilities = cache(async (profile: Pick<Profile, "id" | "role">): Promise<Record<CapabilityKey, boolean>> => {
   const supabase = await createClient();
   const [{ data: roleRows }, { data: overrideRows }] = await Promise.all([
     supabase.from("role_capabilities").select("capability, allowed").eq("role", profile.role),
@@ -22,7 +30,7 @@ export async function getEffectiveCapabilities(profile: Pick<Profile, "id" | "ro
     if (row.capability in result) result[row.capability as CapabilityKey] = row.allowed;
   }
   return result;
-}
+});
 
 export async function hasCapability(profile: Pick<Profile, "id" | "role">, capability: CapabilityKey): Promise<boolean> {
   const caps = await getEffectiveCapabilities(profile);

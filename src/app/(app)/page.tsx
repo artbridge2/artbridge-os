@@ -9,7 +9,7 @@ import { AttentionList } from "@/components/home/attention-list";
 import { TodayCard } from "@/components/home/today-card";
 import { TeamCard, type TeamMember } from "@/components/home/team-card";
 import { OperationalStats } from "@/components/home/operational-stats";
-import { EditorialBanner } from "@/components/home/editorial-banner";
+import { getTodaysArtistQuote } from "@/lib/artist-quotes";
 import type { Ticket } from "@/components/home/ticket-row";
 import type { Profile } from "@/lib/types";
 
@@ -108,6 +108,7 @@ export default async function HomePage({
   });
 
   const tickets = attentionItems.map(toTicket);
+  const dailyQuote = getTodaysArtistQuote();
 
   return (
     <div className="pt-6">
@@ -134,18 +135,12 @@ export default async function HomePage({
           <OperationalStats stats={stats} />
 
           <AttentionList tickets={tickets} />
-
-          <EditorialBanner eyebrow="Same walls." title="A more inspiring day." />
         </div>
 
         <div className="space-y-6">
           <blockquote className="pt-1 text-right">
-            <p className="text-[15px] italic leading-snug text-[#3d4451]">
-              “A more inspired
-              <br />
-              day starts here. ”
-            </p>
-            <p className="mt-1.5 text-[12px] tracking-wide text-[#9aa0a8]">— ARTBRIDGE</p>
+            <p className="text-[15px] italic leading-snug text-[#3d4451]">&ldquo;{dailyQuote.quote}&rdquo;</p>
+            <p className="mt-1.5 text-[12px] tracking-wide text-[#9aa0a8]">— {dailyQuote.artist.toUpperCase()}</p>
           </blockquote>
 
           <TodayCard state={calendarState} events={events} />

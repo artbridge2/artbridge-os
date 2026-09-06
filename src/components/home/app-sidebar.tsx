@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -199,32 +198,10 @@ export function AppSidebar({
           <NavRow href="https://drive.google.com" icon={Folder} label="Drive" external />
         </div>
 
-        <div className="mt-auto flex flex-col border-t border-[#eeeeee] pt-2.5">
+        <div className="mt-auto flex flex-col border-t border-[#eeeeee] pt-2.5 pb-3">
           <NavRow href="/settings" icon={Settings} label="Settings" active={pathname.startsWith("/settings")} />
         </div>
       </nav>
-
-      <div className="p-3 pt-4">
-        <div className="overflow-hidden rounded-2xl border border-[#eeeeee]">
-          <div className="relative h-[150px] w-full bg-[#cbb9a4]">
-            <Image
-              src="/sidebar-promo.png"
-              alt=""
-              fill
-              unoptimized
-              className="object-cover"
-            />
-          </div>
-          <div className="space-y-1.5 px-4 py-4">
-            <p className="text-[15px] leading-tight text-[#12181f]">
-              <span className="font-bold">Art</span>
-              <br />
-              brings people closer.
-            </p>
-            <p className="text-[#c7c9cc]">—</p>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { getEmailThreads } from "@/lib/queries-inbox";
 import { getTasks, getProfiles } from "@/lib/queries";
 import { getArtists, getArtistApplications } from "@/lib/queries-artists";
@@ -36,7 +37,11 @@ function isPast(iso: string | null): boolean {
   return new Date(iso).getTime() < Date.now();
 }
 
-async function getCommunicationAttentionItems(ownerId: string): Promise<AttentionItem[]> {
+// Each of these four is called from multiple places for the same ownerId
+// within one render (layout badge counts, Home's capped list, Home's
+// uncapped stats, the Team card's per-member counts) — cache() dedupes them
+// into a single DB round trip per ownerId per request instead of N.
+const getCommunicationAttentionItems = cache(async (ownerId: string): Promise<AttentionItem[]> => {
   const threads = await getEmailThreads({ activeOnly: true, ownerId });
 
   return threads
@@ -63,7 +68,7 @@ async function getCommunicationAttentionItems(ownerId: string): Promise<Attentio
         needsHumanDecision: t.status === "needs_reply" || t.status === "needs_review" || t.status === "new",
       };
     });
-}
+});
 
 function taskIsAttentionWorthy(task: TaskWithRelations, weekEnd: string): boolean {
   if (task.status === "completed") return false;
@@ -73,7 +78,7 @@ function taskIsAttentionWorthy(task: TaskWithRelations, weekEnd: string): boolea
   return overdue || dueThisWeek || highPriority;
 }
 
-async function getTaskAttentionItems(ownerId: string): Promise<AttentionItem[]> {
+const getTaskAttentionItems = cache(async (ownerId: string): Promise<AttentionItem[]> => {
   const weekEnd = formatDateOnly(weekBounds().end);
   const tasks = await getTasks({ ownerId, excludeDone: true });
 
@@ -97,9 +102,9 @@ async function getTaskAttentionItems(ownerId: string): Promise<AttentionItem[]> 
         needsHumanDecision: false,
       };
     });
-}
+});
 
-export async function getArtistAttentionItems(ownerId: string): Promise<AttentionItem[]> {
+export const getArtistAttentionItems = cache(async (ownerId: string): Promise<AttentionItem[]> => {
   const [ownedArtists, profiles] = await Promise.all([
     getArtists({ ownerId }),
     getProfiles(),
@@ -148,10 +153,10 @@ export async function getArtistAttentionItems(ownerId: string): Promise<Attentio
   }
 
   return items;
-}
+});
 
 /** Genuinely Campaign-level attention only (spec §16) — Content/Email/SEO items would qualify independently once those modules exist. */
-async function getCampaignAttentionItems(ownerId: string): Promise<AttentionItem[]> {
+const getCampaignAttentionItems = cache(async (ownerId: string): Promise<AttentionItem[]> => {
   const items = await getCampaignAttentionItemsRaw(ownerId);
   return items.map((item) => ({
     source_type: "campaign" as const,
@@ -168,7 +173,7 @@ async function getCampaignAttentionItems(ownerId: string): Promise<AttentionItem
     overdue: item.overdue,
     needsHumanDecision: true,
   }));
-}
+});
 
 /** Band per spec §8 — lower sorts first. AI relevance may only reorder within the same band (not implemented — no scoring signal available without an AI key). */
 function rankBand(item: AttentionItem): number {
