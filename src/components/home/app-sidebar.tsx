@@ -88,10 +88,12 @@ export function AppSidebar({
   role,
   communicationCounts,
   taskCount,
+  artistCount,
 }: {
   role: Role;
   communicationCounts?: { total: number; byCategory: Partial<Record<EmailCategory, number>> };
   taskCount?: number;
+  artistCount?: number;
 }) {
   const pathname = usePathname();
   const [marketingOpen, setMarketingOpen] = useState(true);
@@ -165,7 +167,7 @@ export function AppSidebar({
         </div>
 
         <div className="mt-2 flex flex-col">
-          <NavRow href="/artists" icon={User} label="Artists" count={1} />
+          <NavRow href="/artists" icon={User} label="Artists" count={artistCount ?? 0} />
           <NavRow href="/projects" icon={Folder} label="Projects" count={2} />
         </div>
 

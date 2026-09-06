@@ -294,4 +294,22 @@ export async function sendReply(opts: {
   });
 }
 
+/** Sends a brand-new message (not a reply) — used for Artist outreach. Returns Gmail's own thread ID so future replies can be matched back to it. */
+export async function sendNewMessage(opts: {
+  to: string;
+  subject: string;
+  body: string;
+  from: string;
+}): Promise<{ gmailThreadId: string; gmailMessageId: string }> {
+  const gmail = await getAuthorizedClient();
+  const { data } = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: {
+      raw: buildRawMessage({ to: opts.to, subject: opts.subject, body: opts.body, from: opts.from }),
+    },
+  });
+  if (!data.threadId || !data.id) throw new Error("Gmail did not return a thread/message ID");
+  return { gmailThreadId: data.threadId, gmailMessageId: data.id };
+}
+
 export { sanitizeEmailHtml };

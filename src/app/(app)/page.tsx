@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageCircle, CheckSquare, X } from "lucide-react";
+import { MessageCircle, CheckSquare, User, X } from "lucide-react";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { getAttentionItems, getAttentionItemsUncapped, getHomeStats, type AttentionItem } from "@/lib/attention";
@@ -20,15 +20,21 @@ const AVATAR_COLORS = [
   { bg: "#d9ecf5", color: "#2a6b8a" },
 ];
 
+const TICKET_STYLES: Record<AttentionItem["source_type"], { icon: typeof CheckSquare; iconBg: string; iconColor: string; category: string }> = {
+  task: { icon: CheckSquare, iconBg: "#e3f0fd", iconColor: "#3b82f6", category: "Task" },
+  communication: { icon: MessageCircle, iconBg: "#ffefee", iconColor: "#e0545c", category: "Communication" },
+  artist: { icon: User, iconBg: "#eeecfd", iconColor: "#7c6fe0", category: "Artists" },
+};
+
 function toTicket(item: AttentionItem): Ticket {
-  const isTask = item.source_type === "task";
+  const style = TICKET_STYLES[item.source_type];
   return {
     id: `${item.source_type}-${item.source_id}`,
-    icon: isTask ? CheckSquare : MessageCircle,
-    iconBg: isTask ? "#e3f0fd" : "#ffefee",
-    iconColor: isTask ? "#3b82f6" : "#e0545c",
-    borderColor: isTask ? "#3b82f6" : "#e0545c",
-    category: isTask ? "Task" : "Communication",
+    icon: style.icon,
+    iconBg: style.iconBg,
+    iconColor: style.iconColor,
+    borderColor: style.iconColor,
+    category: style.category,
     title: item.title,
     description: item.context ?? item.attention_reason,
     timeAgo: formatElapsedEn(item.updated_at),

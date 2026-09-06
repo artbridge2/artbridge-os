@@ -38,6 +38,19 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
   const lastInbound = [...fetched.messages].reverse().find((m) => m.isInbound);
   const lastOutbound = [...fetched.messages].reverse().find((m) => !m.isInbound);
 
+  // Spec boundary: a reply on an Artist acquisition thread belongs to
+  // Artists, never Communication — check that first, before any
+  // Communication case is created/updated for this gmail_thread_id.
+  const { data: outreachThread } = await admin
+    .from("artist_outreach_threads")
+    .select("id")
+    .eq("gmail_thread_id", fetched.gmailThreadId)
+    .maybeSingle();
+  if (outreachThread) {
+    await syncArtistOutreachThread(admin, outreachThread.id, fetched);
+    return;
+  }
+
   const { data: existing } = await admin
     .from("email_threads")
     .select("id, last_classified_message_id, status, owner_id, category, suppressed, classification_version")
@@ -152,6 +165,55 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
       .eq("id", thread.id);
   } catch (err) {
     console.error("[sync] classification failed for", fetched.gmailThreadId, err);
+  }
+}
+
+/** Appends new messages to an existing Artist outreach thread and surfaces the reply as In conversation + a real notification — never as a Communication case. */
+async function syncArtistOutreachThread(admin: Admin, threadId: string, fetched: FetchedThread): Promise<void> {
+  const messageRows = fetched.messages.map((m) => ({
+    thread_id: threadId,
+    gmail_message_id: m.gmailMessageId,
+    sender: m.sender,
+    is_inbound: m.isInbound,
+    sanitized_body: m.body,
+    sent_at: m.sentAt,
+  }));
+  if (messageRows.length === 0) return;
+
+  const { data: newlyInserted } = await admin
+    .from("artist_outreach_messages")
+    .upsert(messageRows, { onConflict: "gmail_message_id", ignoreDuplicates: true })
+    .select("is_inbound");
+
+  await admin
+    .from("artist_outreach_threads")
+    .update({ last_message_at: fetched.messages.at(-1)?.sentAt ?? null })
+    .eq("id", threadId);
+
+  const hasNewInbound = (newlyInserted ?? []).some((m) => m.is_inbound);
+  if (!hasNewInbound) return;
+
+  const { data: thread } = await admin.from("artist_outreach_threads").select("artist_id, subject").eq("id", threadId).single();
+  if (!thread) return;
+
+  const { data: artist } = await admin.from("artists").select("status, owner_id, full_name").eq("id", thread.artist_id).single();
+  if (!artist) return;
+
+  if (artist.status === "candidate" || artist.status === "contacted") {
+    await admin.from("artists").update({ status: "in_conversation" }).eq("id", thread.artist_id);
+    await admin
+      .from("artist_events")
+      .insert({ artist_id: thread.artist_id, event_type: "status_changed", from_value: artist.status, to_value: "in_conversation" });
+  }
+
+  if (artist.owner_id) {
+    await admin.from("notifications").insert({
+      user_id: artist.owner_id,
+      type: "artist_reply",
+      title: `${artist.full_name} replied`,
+      body: thread.subject,
+      href: `/artists/${thread.artist_id}`,
+    });
   }
 }
 

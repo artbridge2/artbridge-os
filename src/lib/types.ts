@@ -277,3 +277,205 @@ export function issueTypeLabel(issueType: string | null): string | null {
   if (!issueType) return null;
   return ISSUE_TYPE_LABELS[issueType] ?? issueType;
 }
+
+// ---------------------------------------------------------------------------
+// Artists
+// ---------------------------------------------------------------------------
+
+export type ArtistSource = "application" | "research" | "direct";
+
+export type ArtistStatus =
+  | "candidate"
+  | "contacted"
+  | "in_conversation"
+  | "maybe_later"
+  | "accepted"
+  | "active"
+  | "inactive"
+  | "rejected";
+
+export type FitAssessment = "strong" | "possible" | "weak";
+
+export interface ArtistLink {
+  label: string;
+  url: string;
+}
+
+export interface Artist {
+  id: string;
+  full_name: string;
+  artist_name: string | null;
+  email: string | null;
+  phone: string | null;
+  bio: string | null;
+  technique: string | null;
+  location: string | null;
+  website: string | null;
+  instagram: string | null;
+  other_links: ArtistLink[];
+  source: ArtistSource;
+  status: ArtistStatus;
+  owner_id: string | null;
+  fit_assessment: FitAssessment | null;
+  fit_rationale: string | null;
+  commission_terms: string | null;
+  onboarding_commission_at: string | null;
+  onboarding_commission_by: string | null;
+  onboarding_registration_at: string | null;
+  onboarding_registration_by: string | null;
+  onboarding_upload_at: string | null;
+  onboarding_upload_by: string | null;
+  onboarding_published_at: string | null;
+  onboarding_published_by: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface ArtistWithRelations extends Artist {
+  owner: Profile | null;
+}
+
+export const ARTIST_STATUS_LABELS: Record<ArtistStatus, string> = {
+  candidate: "Candidate",
+  contacted: "Contacted",
+  in_conversation: "In conversation",
+  maybe_later: "Maybe / Later",
+  accepted: "Accepted",
+  active: "Active",
+  inactive: "Inactive",
+  rejected: "Rejected",
+};
+
+export const FIT_ASSESSMENT_LABELS: Record<FitAssessment, string> = {
+  strong: "Strong fit",
+  possible: "Possible fit",
+  weak: "Weak fit",
+};
+
+export type ApplicationReviewStatus = "pending" | "accepted" | "rejected" | "maybe_later";
+
+export interface ArtistApplication {
+  id: string;
+  artist_id: string | null;
+  raw_name: string | null;
+  raw_email: string | null;
+  raw_message: string | null;
+  raw_links: ArtistLink[];
+  submitted_at: string;
+  review_status: ApplicationReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface ArtistApplicationWithRelations extends ArtistApplication {
+  artist: Artist | null;
+}
+
+export const APPLICATION_REVIEW_LABELS: Record<ApplicationReviewStatus, string> = {
+  pending: "Pending review",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  maybe_later: "Maybe / Later",
+};
+
+export interface ArtistResearchSession {
+  id: string;
+  title: string;
+  brief: string;
+  created_by: string | null;
+  status: "active" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArtistResearchMessage {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+export type ResearchResultState = "pending" | "saved" | "dismissed";
+
+export interface ArtistResearchResult {
+  id: string;
+  session_id: string;
+  full_name: string;
+  artist_name: string | null;
+  location: string | null;
+  bio: string | null;
+  technique: string | null;
+  website: string | null;
+  instagram: string | null;
+  email: string | null;
+  portfolio_links: ArtistLink[];
+  source_links: ArtistLink[];
+  fit_assessment: FitAssessment | null;
+  fit_rationale: string | null;
+  state: ResearchResultState;
+  saved_artist_id: string | null;
+  created_at: string;
+}
+
+export interface ArtistOutreachThread {
+  id: string;
+  artist_id: string;
+  gmail_thread_id: string | null;
+  subject: string | null;
+  last_message_at: string | null;
+  created_at: string;
+}
+
+export interface ArtistOutreachMessage {
+  id: string;
+  thread_id: string;
+  gmail_message_id: string | null;
+  sender: string | null;
+  is_inbound: boolean;
+  sanitized_body: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export interface ArtistComment {
+  id: string;
+  artist_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface ArtistDocument {
+  id: string;
+  artist_id: string;
+  name: string;
+  url: string;
+  added_by: string | null;
+  created_at: string;
+}
+
+export interface ArtistEvent {
+  id: string;
+  artist_id: string;
+  actor_id: string | null;
+  event_type: string;
+  from_value: string | null;
+  to_value: string | null;
+  created_at: string;
+}
+
+export interface DuplicateArtistMatch {
+  artist: Artist;
+  matchedOn: string[];
+}
+
+export const ONBOARDING_STEPS = [
+  { key: "commission", field: "onboarding_commission_at", label: "Commission discussion" },
+  { key: "registration", field: "onboarding_registration_at", label: "Registration" },
+  { key: "upload", field: "onboarding_upload_at", label: "First artwork upload" },
+  { key: "published", field: "onboarding_published_at", label: "Published on Artbridge" },
+] as const;

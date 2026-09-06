@@ -1,6 +1,7 @@
 import "server-only";
 import { getEmailThreads } from "@/lib/queries-inbox";
-import { getTasks } from "@/lib/queries";
+import { getTasks, getProfiles } from "@/lib/queries";
+import { getArtists, getArtistApplications } from "@/lib/queries-artists";
 import { formatDateOnly, todayInBudapest, weekBounds } from "@/lib/dates";
 import { CASE_STATUS_LABELS, type TaskPriority, type TaskWithRelations } from "@/lib/types";
 
@@ -12,7 +13,7 @@ import { CASE_STATUS_LABELS, type TaskPriority, type TaskWithRelations } from "@
  * contributing to the merge below; Home itself doesn't change.
  */
 export interface AttentionItem {
-  source_type: "communication" | "task";
+  source_type: "communication" | "task" | "artist";
   source_id: string;
   owner_id: string | null;
   title: string;
@@ -97,6 +98,57 @@ async function getTaskAttentionItems(ownerId: string): Promise<AttentionItem[]> 
     });
 }
 
+export async function getArtistAttentionItems(ownerId: string): Promise<AttentionItem[]> {
+  const [ownedArtists, profiles] = await Promise.all([
+    getArtists({ ownerId }),
+    getProfiles(),
+  ]);
+
+  const items: AttentionItem[] = ownedArtists
+    .filter((a) => a.status === "in_conversation")
+    .map((a) => ({
+      source_type: "artist" as const,
+      source_id: a.id,
+      owner_id: a.owner_id,
+      title: a.artist_name || a.full_name,
+      context: "Artist replied to outreach",
+      priority: "normal" as TaskPriority,
+      due_at: null,
+      follow_up_at: null,
+      attention_reason: "Awaiting your response",
+      href: `/artists/${a.id}`,
+      updated_at: a.updated_at,
+      overdue: false,
+      needsHumanDecision: true,
+    }));
+
+  // Application review is Lili's (Curator) primary responsibility — only surface
+  // pending applications in the attention list of whoever is viewed as kurator.
+  const viewedProfile = profiles.find((p) => p.id === ownerId);
+  if (viewedProfile?.role === "kurator") {
+    const pending = await getArtistApplications("pending");
+    for (const app of pending) {
+      items.push({
+        source_type: "artist" as const,
+        source_id: app.id,
+        owner_id: ownerId,
+        title: app.raw_name || app.raw_email || "New artist application",
+        context: "Application awaiting review",
+        priority: "normal",
+        due_at: null,
+        follow_up_at: null,
+        attention_reason: "Application awaiting review",
+        href: `/artists/applications/${app.id}`,
+        updated_at: app.submitted_at,
+        overdue: false,
+        needsHumanDecision: true,
+      });
+    }
+  }
+
+  return items;
+}
+
 /** Band per spec §8 — lower sorts first. AI relevance may only reorder within the same band (not implemented — no scoring signal available without an AI key). */
 function rankBand(item: AttentionItem): number {
   if (item.priority === "urgent") return 1;
@@ -122,7 +174,7 @@ function rankItems(items: AttentionItem[]): AttentionItem[] {
 
 /** Home's "Needs your attention" — at most 10, ranked, real. */
 export async function getAttentionItems(ownerId: string): Promise<AttentionItem[]> {
-  const [communication, tasks] = await Promise.all([
+  const [communication, tasks, artists] = await Promise.all([
     getCommunicationAttentionItems(ownerId).catch((err) => {
       console.error("[attention] communication source failed", err);
       return [];
@@ -131,9 +183,13 @@ export async function getAttentionItems(ownerId: string): Promise<AttentionItem[
       console.error("[attention] task source failed", err);
       return [];
     }),
+    getArtistAttentionItems(ownerId).catch((err) => {
+      console.error("[attention] artist source failed", err);
+      return [];
+    }),
   ]);
 
-  return rankItems([...communication, ...tasks]).slice(0, 10);
+  return rankItems([...communication, ...tasks, ...artists]).slice(0, 10);
 }
 
 export interface HomeStats {
@@ -178,9 +234,10 @@ export async function getHomeStats(ownerId: string): Promise<HomeStats> {
 
 /** Same eligibility/ranking as the Home queue, but uncapped — used for the "Needs attention" stat (and the Team card's per-member count), which counts everything eligible, not just the visible top 10. */
 export async function getAttentionItemsUncapped(ownerId: string): Promise<AttentionItem[]> {
-  const [communication, tasks] = await Promise.all([
+  const [communication, tasks, artists] = await Promise.all([
     getCommunicationAttentionItems(ownerId).catch(() => []),
     getTaskAttentionItems(ownerId).catch(() => []),
+    getArtistAttentionItems(ownerId).catch(() => []),
   ]);
-  return [...communication, ...tasks];
+  return [...communication, ...tasks, ...artists];
 }

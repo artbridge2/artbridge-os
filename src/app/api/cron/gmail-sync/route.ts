@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { archiveStaleResolvedCases, runIncrementalSync } from "@/lib/gmail/sync";
 
+export const maxDuration = 60;
+
 /**
  * Vercel Cron target (see vercel.json). Vercel signs cron requests with
  * `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is set — verify it
