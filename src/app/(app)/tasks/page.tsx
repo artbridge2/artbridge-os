@@ -39,6 +39,7 @@ export default async function TasksPage({
       search,
       status: layout === "list" && view === "completed" ? "completed" : undefined,
       excludeDone: layout === "list" && view !== "completed",
+      excludeProjectLinked: true,
     }),
     getProfiles(),
     getAreas(),

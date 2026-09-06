@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, formatDateOnly, todayInBudapest } from "@/lib/dates";
-import type { Profile, ProjectComment, ProjectStatus, ProjectWithRelations } from "@/lib/types";
+import type { Profile, ProjectComment, ProjectDocument, ProjectEvent, ProjectStatus, ProjectWithRelations } from "@/lib/types";
 
 const PROJECT_SELECT = `*, owner:profiles!projects_owner_id_fkey(id, full_name, role, email)`;
 
@@ -48,6 +48,18 @@ export async function getProjectComments(projectId: string): Promise<(ProjectCom
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
   return (data ?? []) as unknown as (ProjectComment & { author: Profile | null })[];
+}
+
+export async function getProjectDocuments(projectId: string): Promise<ProjectDocument[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("project_documents").select("*").eq("project_id", projectId).order("created_at", { ascending: false });
+  return (data ?? []) as ProjectDocument[];
+}
+
+export async function getProjectEvents(projectId: string): Promise<ProjectEvent[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("project_events").select("*").eq("project_id", projectId).order("created_at", { ascending: false });
+  return (data ?? []) as ProjectEvent[];
 }
 
 export interface ProjectAttentionItem {

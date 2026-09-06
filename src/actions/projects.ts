@@ -126,10 +126,36 @@ export async function postProjectComment(projectId: string, body: string, projec
   revalidateProjectViews();
 }
 
-/** Links/unlinks an existing Task to this Project — the Task keeps its own owner/status/priority, only gains a project grouping. */
+/** Links/unlinks an existing Task to this Project — the Task keeps its own owner/status/priority, only gains a project grouping. Linking resets promoted_to_global: a freshly-linked task is scoped to the project by default (spec §16) until explicitly promoted again. */
 export async function setTaskProject(taskId: string, projectId: string | null) {
   await requireAdmin();
   const supabase = await createClient();
-  await supabase.from("tasks").update({ project_id: projectId }).eq("id", taskId);
+  await supabase.from("tasks").update({ project_id: projectId, ...(projectId ? { promoted_to_global: false } : {}) }).eq("id", taskId);
+  revalidateProjectViews();
+}
+
+/** Explicit "Convert/Promote to Global Task" (spec §16) — the task stays linked to the project, but also now shows on the Global Tasks board. */
+export async function promoteTaskToGlobal(taskId: string) {
+  await requireAdmin();
+  const supabase = await createClient();
+  await supabase.from("tasks").update({ promoted_to_global: true }).eq("id", taskId);
+  revalidateProjectViews();
+}
+
+// ---------------------------------------------------------------------------
+// Files (spec §15) — mirrors artist_documents exactly
+// ---------------------------------------------------------------------------
+
+export async function addProjectDocument(projectId: string, name: string, url: string) {
+  if (!name.trim() || !url.trim()) return;
+  const supabase = await createClient();
+  const me = await getCurrentProfile();
+  await supabase.from("project_documents").insert({ project_id: projectId, name: name.trim(), url: url.trim(), added_by: me.id });
+  revalidateProjectViews();
+}
+
+export async function removeProjectDocument(id: string) {
+  const supabase = await createClient();
+  await supabase.from("project_documents").delete().eq("id", id);
   revalidateProjectViews();
 }

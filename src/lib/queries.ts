@@ -36,6 +36,8 @@ export interface TaskFilters {
   overdueOnly?: boolean;
   search?: string;
   excludeDone?: boolean;
+  /** Global Tasks board/list only (spec §16) — a task linked to a Project stays scoped to that Project's own views by default, not the Global board, until explicitly promoted. */
+  excludeProjectLinked?: boolean;
 }
 
 export async function getTasks(filters: TaskFilters = {}): Promise<TaskWithRelations[]> {
@@ -47,6 +49,7 @@ export async function getTasks(filters: TaskFilters = {}): Promise<TaskWithRelat
   if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
   if (filters.areaId) query = query.eq("area_id", filters.areaId);
   if (filters.projectId) query = query.eq("project_id", filters.projectId);
+  if (filters.excludeProjectLinked) query = query.or("project_id.is.null,promoted_to_global.eq.true");
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.priority) query = query.eq("priority", filters.priority);
   if (filters.excludeDone) query = query.neq("status", "completed");

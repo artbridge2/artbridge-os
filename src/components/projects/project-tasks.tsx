@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setTaskProject } from "@/actions/projects";
+import { ArrowUpRight } from "lucide-react";
+import { promoteTaskToGlobal, setTaskProject } from "@/actions/projects";
 import { TaskRow } from "@/components/tasks/task-row";
 import { NewTaskDialog } from "@/components/tasks/new-task-dialog";
 import type { Area, Profile, TaskWithRelations } from "@/lib/types";
@@ -35,6 +36,13 @@ export function ProjectTasks({
     });
   }
 
+  function promote(taskId: string) {
+    startTransition(async () => {
+      await promoteTaskToGlobal(taskId);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="rounded-xl border border-[#eeeeee] bg-white p-4">
       <div className="flex items-center justify-between">
@@ -45,7 +53,24 @@ export function ProjectTasks({
         {tasks.length === 0 ? (
           <p className="rounded-lg border border-dashed border-[#e4e4e4] py-6 text-center text-[13px] text-[#9aa0a8]">No tasks linked yet.</p>
         ) : (
-          tasks.map((task) => <TaskRow key={task.id} task={task} showAssignee />)
+          tasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <TaskRow task={task} showAssignee />
+              </div>
+              {!task.promoted_to_global && (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => promote(task.id)}
+                  title="Also show this task on the Global Tasks board"
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-[#eeeeee] px-2 py-1 text-[12px] font-medium text-[#5a616c] hover:bg-[#f4f4f4]"
+                >
+                  <ArrowUpRight className="size-3.5" /> Promote
+                </button>
+              )}
+            </div>
+          ))
         )}
       </div>
       {unlinkedTasks.length > 0 && (

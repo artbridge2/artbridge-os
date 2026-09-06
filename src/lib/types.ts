@@ -148,6 +148,26 @@ export interface ProjectComment {
   project_id: string;
   author_id: string | null;
   body: string;
+  mentioned_profile_ids?: string[] | null;
+  created_at: string;
+}
+
+export interface ProjectDocument {
+  id: string;
+  project_id: string;
+  name: string;
+  url: string;
+  added_by: string | null;
+  created_at: string;
+}
+
+export interface ProjectEvent {
+  id: string;
+  project_id: string;
+  actor_id: string | null;
+  event_type: string;
+  from_value: string | null;
+  to_value: string | null;
   created_at: string;
 }
 
