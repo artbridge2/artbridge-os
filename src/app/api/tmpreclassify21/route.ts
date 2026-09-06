@@ -12,8 +12,9 @@ const STARRED_THREAD_IDS = [
   "1a01a0cc7b63ca52", "19ffa6e8ff8718f5",
 ];
 
-export async function GET() {
+export async function GET(request: Request) {
   await getCurrentProfile();
-  const result = await classifySpecificThreads(STARRED_THREAD_IDS);
+  const limit = Number(new URL(request.url).searchParams.get("limit") ?? "3");
+  const result = await classifySpecificThreads(STARRED_THREAD_IDS, 40_000, limit);
   return NextResponse.json(result);
 }

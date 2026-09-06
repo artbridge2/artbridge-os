@@ -744,7 +744,8 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
  */
 export async function classifySpecificThreads(
   gmailThreadIds: string[],
-  maxBudgetMs = 45_000
+  maxBudgetMs = 45_000,
+  maxToProcess = Infinity
 ): Promise<{
   processed: number;
   skippedJunk: number;
@@ -765,7 +766,7 @@ export async function classifySpecificThreads(
   const errorSamples: string[] = [];
 
   for (const gmailThreadId of gmailThreadIds) {
-    if (Date.now() - startedAt > maxBudgetMs) {
+    if (Date.now() - startedAt > maxBudgetMs || processed >= maxToProcess) {
       timedOut = true;
       break;
     }
