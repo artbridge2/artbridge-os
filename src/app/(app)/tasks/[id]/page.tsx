@@ -43,7 +43,7 @@ export default async function TaskDetailPage({
 
         <TaskAttachments taskId={task.id} attachments={attachments} />
 
-        <TaskComments taskId={task.id} comments={comments} />
+        <TaskComments taskId={task.id} comments={comments} profiles={profiles} />
       </div>
 
       <TaskSidebar task={task} profiles={profiles} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />

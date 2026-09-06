@@ -4,6 +4,8 @@ import { useState, useTransition, type ReactNode } from "react";
 import { Sparkles, PenLine, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionInput, resolveMentions } from "@/components/shared/mention-input";
+import type { Profile } from "@/lib/types";
 
 /**
  * Shared compose box for anywhere the app sends AI-assisted text (Communication
@@ -24,6 +26,8 @@ export function AiComposer({
   onGenerateDraft,
   onGenerateFromBrief,
   onSend,
+  mentionable = false,
+  profiles = [],
 }: {
   initialText?: string;
   initialIsAiDraft?: boolean;
@@ -38,13 +42,17 @@ export function AiComposer({
   onGenerateDraft?: () => Promise<string>;
   /** Omit to hide "Write from brief". */
   onGenerateFromBrief?: (brief: string) => Promise<string>;
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, mentionedProfileIds: string[]) => Promise<void>;
+  /** Internal notes/comments support @mentions; outgoing email doesn't. */
+  mentionable?: boolean;
+  profiles?: Profile[];
 }) {
   const [text, setText] = useState(initialText);
   const [isAiDraft, setIsAiDraft] = useState(initialIsAiDraft);
   const [error, setError] = useState<string | null>(null);
   const [showBrief, setShowBrief] = useState(false);
   const [brief, setBrief] = useState("");
+  const [picks, setPicks] = useState<{ id: string; name: string }[]>([]);
   const [pending, startTransition] = useTransition();
   const [draftPending, startDraftTransition] = useTransition();
 
@@ -70,11 +78,13 @@ export function AiComposer({
   function submit() {
     if (!text.trim()) return;
     setError(null);
+    const mentionedProfileIds = mentionable ? resolveMentions(text, picks) : [];
     startTransition(async () => {
       try {
-        await onSend(text);
+        await onSend(text, mentionedProfileIds);
         setText("");
         setIsAiDraft(false);
+        setPicks([]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       }
@@ -89,17 +99,36 @@ export function AiComposer({
 
       {isAiDraft && <p className="mt-2 px-1 text-[12px] font-medium text-[#7c6fe0]">{aiDraftBanner}</p>}
 
-      <Textarea
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          if (!e.target.value.trim()) setIsAiDraft(false);
-        }}
-        placeholder={placeholder}
-        rows={rows}
-        disabled={busy}
-        className="mt-1 resize-none border-0 px-1 shadow-none focus-visible:ring-0"
-      />
+      {mentionable ? (
+        <div className="mt-1">
+          <MentionInput
+            value={text}
+            onValueChange={(v) => {
+              setText(v);
+              if (!v.trim()) setIsAiDraft(false);
+            }}
+            picks={picks}
+            onPicksChange={setPicks}
+            profiles={profiles}
+            placeholder={placeholder}
+            disabled={busy}
+            multiline
+            rows={rows}
+          />
+        </div>
+      ) : (
+        <Textarea
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            if (!e.target.value.trim()) setIsAiDraft(false);
+          }}
+          placeholder={placeholder}
+          rows={rows}
+          disabled={busy}
+          className="mt-1 resize-none border-0 px-1 shadow-none focus-visible:ring-0"
+        />
+      )}
 
       {showBrief && onGenerateFromBrief && (
         <div className="mt-1 space-y-1.5 rounded-lg border border-[#eeeeee] bg-[#fafafa] p-2">

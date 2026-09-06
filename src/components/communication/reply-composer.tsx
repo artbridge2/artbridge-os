@@ -5,23 +5,26 @@ import { useRouter } from "next/navigation";
 import { generateDraft, generateDraftFromBrief, postInternalNote, sendReply } from "@/actions/inbox";
 import { AiComposer } from "@/components/shared/ai-composer";
 import { cn } from "@/lib/utils";
+import type { Profile } from "@/lib/types";
 
 export function ReplyComposer({
   threadId,
   gmailConnected,
   initialDraft,
+  profiles,
 }: {
   threadId: string;
   gmailConnected: boolean;
   initialDraft?: string | null;
+  profiles: Profile[];
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<"reply" | "note">("reply");
 
-  async function onSend(text: string) {
+  async function onSend(text: string, mentionedProfileIds: string[]) {
     try {
       if (mode === "note") {
-        await postInternalNote(threadId, text);
+        await postInternalNote(threadId, text, mentionedProfileIds);
       } else {
         await sendReply(threadId, text);
       }
@@ -47,6 +50,8 @@ export function ReplyComposer({
         onGenerateDraft={mode === "reply" ? () => generateDraft(threadId) : undefined}
         onGenerateFromBrief={mode === "reply" ? (brief) => generateDraftFromBrief(threadId, brief) : undefined}
         onSend={onSend}
+        mentionable={mode === "note"}
+        profiles={profiles}
         header={
           <div className="flex items-center gap-1">
             <button

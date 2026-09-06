@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/dal";
-import { getProfiles } from "@/lib/queries";
+import { notifyUser, notifyMentions } from "@/lib/notify";
 import { computeNextDueDate } from "@/lib/recurring";
 import { parseDateOnly, formatDateOnly, todayInBudapest } from "@/lib/dates";
 import type { ChecklistItem, RecurringRule, TaskPriority, TaskStatus } from "@/lib/types";
@@ -25,11 +25,6 @@ async function logTaskEvent(taskId: string, eventType: string, fromValue: string
     from_value: fromValue,
     to_value: toValue,
   });
-}
-
-async function notifyUser(userId: string, type: string, title: string, body: string | null, href: string) {
-  const supabase = await createClient();
-  await supabase.from("notifications").insert({ user_id: userId, type, title, body, href });
 }
 
 export async function createTask(
@@ -234,22 +229,16 @@ export async function removeChecklistItem(taskId: string, itemId: string) {
 // Comments + @mentions (spec §8)
 // ---------------------------------------------------------------------------
 
-export async function postTaskComment(taskId: string, body: string) {
+export async function postTaskComment(taskId: string, body: string, mentionedProfileIds: string[] = []) {
   if (!body.trim()) return;
   const supabase = await createClient();
   const me = await getCurrentProfile();
 
   const { data: task } = await supabase.from("tasks").select("title").eq("id", taskId).single();
 
-  await supabase.from("task_comments").insert({ task_id: taskId, author_id: me.id, body });
-
-  const profiles = await getProfiles();
-  for (const p of profiles) {
-    if (p.id === me.id) continue;
-    if (body.toLowerCase().includes(`@${p.full_name.toLowerCase()}`)) {
-      await notifyUser(p.id, "mention", `${me.full_name} mentioned you`, task?.title ?? null, `/tasks/${taskId}`);
-    }
-  }
+  const { error } = await supabase.from("task_comments").insert({ task_id: taskId, author_id: me.id, body, mentioned_profile_ids: mentionedProfileIds });
+  if (error) throw new Error("Could not post comment.");
+  await notifyMentions(mentionedProfileIds, me.id, me.full_name, task?.title ?? null, `/tasks/${taskId}`);
 
   revalidateTaskViews();
 }

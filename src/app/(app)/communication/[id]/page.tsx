@@ -60,7 +60,7 @@ export default async function ThreadDetailPage({
 
         <ConversationPanel messages={messages} />
 
-        <ReplyComposer threadId={thread.id} gmailConnected={gmailStatus.connected} initialDraft={thread.draft_reply} />
+        <ReplyComposer threadId={thread.id} gmailConnected={gmailStatus.connected} initialDraft={thread.draft_reply} profiles={profiles} />
       </div>
 
       <TicketSidebar thread={thread} profiles={profiles} shopifyMatch={shopifyMatch} shopifyConnected={shopifyStatus.connected} />

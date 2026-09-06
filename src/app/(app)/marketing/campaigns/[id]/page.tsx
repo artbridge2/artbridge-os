@@ -57,7 +57,7 @@ export default async function CampaignDetailPage({
           contentItems={contentItems.map((c) => ({ id: c.id, title: c.title }))}
         />
 
-        <CampaignDiscussion campaignId={campaign.id} campaignName={campaign.name} comments={comments} />
+        <CampaignDiscussion campaignId={campaign.id} campaignName={campaign.name} comments={comments} profiles={profiles} />
       </div>
 
       <CampaignSidebar campaign={campaign} profiles={profiles} canManage={canManage} />

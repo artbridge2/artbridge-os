@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/dal";
 import { hasCapability } from "@/lib/permissions";
+import { notifyUser } from "@/lib/notify";
 import type { ContentStatus, ContentType } from "@/lib/types";
 
 function revalidateContentViews() {
@@ -23,11 +24,6 @@ async function logContentEvent(contentItemId: string, eventType: string, fromVal
   await supabase
     .from("content_item_events")
     .insert({ content_item_id: contentItemId, actor_id: me.id, event_type: eventType, from_value: fromValue, to_value: toValue });
-}
-
-async function notifyUser(userId: string, type: string, title: string, body: string | null, href: string) {
-  const supabase = await createClient();
-  await supabase.from("notifications").insert({ user_id: userId, type, title, body, href });
 }
 
 export interface CreateContentItemInput {

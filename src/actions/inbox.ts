@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
-import { getProfiles } from "@/lib/queries";
+import { notifyUser, notifyMentions } from "@/lib/notify";
 import { classifyThread, extractEmail, generateReplyDraft, generateReplyDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
 import { applyClassification, resolveOwnerProfileId } from "@/lib/gmail/sync";
 import { sendReply as sendGmailReply } from "@/lib/gmail/client";
@@ -36,11 +36,6 @@ async function logCaseEvent(threadId: string, eventType: string, fromValue: stri
     from_value: fromValue,
     to_value: toValue,
   });
-}
-
-async function notifyUser(userId: string, type: string, title: string, body: string | null, href: string) {
-  const supabase = await createClient();
-  await supabase.from("notifications").insert({ user_id: userId, type, title, body, href });
 }
 
 export async function changeThreadStatus(threadId: string, status: CaseStatus) {
@@ -350,27 +345,15 @@ export async function removeChecklistItem(threadId: string, itemId: string) {
   revalidateInboxViews();
 }
 
-/** Finds @FullName mentions in a note and notifies each matched profile. Does not change assignee. */
-async function notifyMentions(threadId: string, body: string, subject: string | null) {
-  const profiles = await getProfiles();
-  const me = await getCurrentProfile();
-  for (const p of profiles) {
-    if (p.id === me.id) continue;
-    if (body.toLowerCase().includes(`@${p.full_name.toLowerCase()}`)) {
-      await notifyUser(p.id, "mention", `${me.full_name} mentioned you`, subject ?? "(no subject)", `/communication/${threadId}`);
-    }
-  }
-}
-
 /** Internal-only note — never leaves Artbridge. Works with or without Gmail connected. */
-export async function postInternalNote(threadId: string, body: string) {
+export async function postInternalNote(threadId: string, body: string, mentionedProfileIds: string[] = []) {
   if (!body.trim()) return;
   const supabase = await createClient();
   const me = await getCurrentProfile();
 
   const { data: thread } = await supabase.from("email_threads").select("subject").eq("id", threadId).single();
 
-  await supabase.from("email_messages").insert({
+  const { error } = await supabase.from("email_messages").insert({
     thread_id: threadId,
     gmail_message_id: `local-note-${crypto.randomUUID()}`,
     sender: me.full_name,
@@ -378,9 +361,11 @@ export async function postInternalNote(threadId: string, body: string) {
     is_internal_note: true,
     sanitized_body: body,
     sent_at: new Date().toISOString(),
+    mentioned_profile_ids: mentionedProfileIds,
   });
+  if (error) throw new Error("Could not post note.");
 
-  await notifyMentions(threadId, body, thread?.subject ?? null);
+  await notifyMentions(mentionedProfileIds, me.id, me.full_name, thread?.subject ?? "(no subject)", `/communication/${threadId}`);
   revalidateInboxViews();
 }
 

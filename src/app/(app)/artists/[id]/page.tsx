@@ -59,7 +59,7 @@ export default async function ArtistDetailPage({ params }: { params: Promise<{ i
           messages={messages}
         />
 
-        <ArtistDiscussion artistId={artist.id} comments={comments} />
+        <ArtistDiscussion artistId={artist.id} comments={comments} profiles={profiles} />
 
         <ArtistDocuments artistId={artist.id} documents={documents} />
       </div>

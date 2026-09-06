@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/dal";
 import { hasCapability } from "@/lib/permissions";
-import { getProfiles } from "@/lib/queries";
+import { notifyUser, notifyMentions } from "@/lib/notify";
 import type { CampaignStatus, TaskPriority } from "@/lib/types";
 
 function revalidateMarketingViews() {
@@ -23,22 +23,6 @@ async function logCampaignEvent(campaignId: string, eventType: string, fromValue
   const supabase = await createClient();
   const me = await getCurrentProfile();
   await supabase.from("marketing_campaign_events").insert({ campaign_id: campaignId, actor_id: me.id, event_type: eventType, from_value: fromValue, to_value: toValue });
-}
-
-async function notifyUser(userId: string, type: string, title: string, body: string | null, href: string) {
-  const supabase = await createClient();
-  await supabase.from("notifications").insert({ user_id: userId, type, title, body, href });
-}
-
-async function notifyMentions(body: string, title: string | null, href: string) {
-  const profiles = await getProfiles();
-  const me = await getCurrentProfile();
-  for (const p of profiles) {
-    if (p.id === me.id) continue;
-    if (body.toLowerCase().includes(`@${p.full_name.toLowerCase()}`)) {
-      await notifyUser(p.id, "mention", `${me.full_name} mentioned you`, title, href);
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,11 +128,12 @@ export async function deleteCampaign(campaignId: string) {
 // Campaign discussion (@mentions)
 // ---------------------------------------------------------------------------
 
-export async function postCampaignComment(campaignId: string, body: string, campaignName: string) {
+export async function postCampaignComment(campaignId: string, body: string, campaignName: string, mentionedProfileIds: string[] = []) {
   const supabase = await createClient();
   const me = await getCurrentProfile();
-  await supabase.from("marketing_campaign_comments").insert({ campaign_id: campaignId, author_id: me.id, body });
-  await notifyMentions(body, campaignName, `/marketing/campaigns/${campaignId}`);
+  const { error } = await supabase.from("marketing_campaign_comments").insert({ campaign_id: campaignId, author_id: me.id, body, mentioned_profile_ids: mentionedProfileIds });
+  if (error) throw new Error("Could not post comment.");
+  await notifyMentions(mentionedProfileIds, me.id, me.full_name, campaignName, `/marketing/campaigns/${campaignId}`);
   revalidateMarketingViews();
 }
 

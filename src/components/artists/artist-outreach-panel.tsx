@@ -24,7 +24,7 @@ export function ArtistOutreachPanel({
   const [subject, setSubject] = useState(thread?.subject ?? "");
   const [subjectError, setSubjectError] = useState<string | null>(null);
 
-  async function onSend(body: string) {
+  async function onSend(body: string, _mentionedProfileIds: string[]) {
     if (thread) {
       await replyArtistOutreach(thread.id, body);
     } else {

@@ -49,7 +49,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           defaultOwnerId={project.owner_id ?? profile.id}
         />
 
-        <ProjectDiscussion projectId={project.id} projectName={project.name} comments={comments} />
+        <ProjectDiscussion projectId={project.id} projectName={project.name} comments={comments} profiles={profiles} />
       </div>
 
       <ProjectSidebar project={project} profiles={profiles} />

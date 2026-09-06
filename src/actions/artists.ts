@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
-import { getProfiles } from "@/lib/queries";
+import { notifyUser, notifyMentions } from "@/lib/notify";
 import { sendNewMessage, sendReply as sendGmailReply } from "@/lib/gmail/client";
 import { findPossibleDuplicates, type DuplicateCandidateInput } from "@/lib/artists/duplicate-detection";
 import { generateArtistOutreachDraft, generateArtistOutreachDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
@@ -19,22 +19,6 @@ async function logArtistEvent(artistId: string, eventType: string, fromValue: st
   const supabase = await createClient();
   const me = await getCurrentProfile();
   await supabase.from("artist_events").insert({ artist_id: artistId, actor_id: me.id, event_type: eventType, from_value: fromValue, to_value: toValue });
-}
-
-async function notifyUser(userId: string, type: string, title: string, body: string | null, href: string) {
-  const supabase = await createClient();
-  await supabase.from("notifications").insert({ user_id: userId, type, title, body, href });
-}
-
-async function notifyMentions(body: string, title: string | null, href: string) {
-  const profiles = await getProfiles();
-  const me = await getCurrentProfile();
-  for (const p of profiles) {
-    if (p.id === me.id) continue;
-    if (body.toLowerCase().includes(`@${p.full_name.toLowerCase()}`)) {
-      await notifyUser(p.id, "mention", `${me.full_name} mentioned you`, title, href);
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,14 +210,15 @@ export async function deleteArtist(artistId: string) {
 // Discussion (@mentions)
 // ---------------------------------------------------------------------------
 
-export async function postArtistComment(artistId: string, body: string) {
+export async function postArtistComment(artistId: string, body: string, mentionedProfileIds: string[] = []) {
   if (!body.trim()) return;
   const supabase = await createClient();
   const me = await getCurrentProfile();
   const { data: artist } = await supabase.from("artists").select("full_name").eq("id", artistId).single();
 
-  await supabase.from("artist_comments").insert({ artist_id: artistId, author_id: me.id, body });
-  await notifyMentions(body, artist?.full_name ?? null, `/artists/${artistId}`);
+  const { error } = await supabase.from("artist_comments").insert({ artist_id: artistId, author_id: me.id, body, mentioned_profile_ids: mentionedProfileIds });
+  if (error) throw new Error("Could not post comment.");
+  await notifyMentions(mentionedProfileIds, me.id, me.full_name, artist?.full_name ?? null, `/artists/${artistId}`);
   revalidateArtistViews();
 }
 
