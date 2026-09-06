@@ -1,0 +1,27 @@
+name: Frequent Gmail sync
+
+# Vercel's Hobby plan only allows cron jobs to run once per day, which is far
+# too slow for Communications to feel "near real-time" — a real customer
+# email could sit unprocessed for most of a day. This uses GitHub Actions'
+# free scheduler to poll the same sync endpoint every 5 minutes instead.
+# GitHub does not guarantee exact timing for scheduled workflows (it can slip
+# under load), so this is a best-effort improvement, not a true push
+# mechanism — see CRON_SECRET below for securing the endpoint.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Gmail sync
+        run: |
+          if [ -n "${{ secrets.CRON_SECRET }}" ]; then
+            AUTH_HEADER="Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+          else
+            AUTH_HEADER="X-No-Auth: true"
+          fi
+          curl -sf -X GET "https://artbridge-os-v2.vercel.app/api/cron/gmail-sync" -H "$AUTH_HEADER" -o response.json -w "\nHTTP %{http_code}\n"
+          cat response.json

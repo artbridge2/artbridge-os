@@ -67,11 +67,11 @@ export function ConversationPanel({ messages }: { messages: EmailMessage[] }) {
             className="flex items-center gap-1 text-[13px] font-medium text-[#5a616c] hover:text-[#12181f]"
           >
             {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-            {expanded ? "Hide full conversation" : `View full conversation (${messages.length} messages)`}
+            {expanded ? "Hide previous conversation" : `Previous conversation · ${rest.length} message${rest.length === 1 ? "" : "s"}`}
           </button>
           {expanded && (
             <div className="mt-2.5 space-y-2.5">
-              {messages.map((m) => (
+              {[...rest].reverse().map((m) => (
                 <MessageCard key={m.id} message={m} />
               ))}
             </div>

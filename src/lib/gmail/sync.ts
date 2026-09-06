@@ -114,6 +114,19 @@ async function applyClassification(
     })
     .eq("id", threadId);
   if (error) throw new Error(`classification update failed: ${error.message}`);
+
+  // A case just got a real owner for the first time — that person needs to
+  // know it exists rather than discovering it by chance. Only on genuine
+  // fresh assignment, never on every reclassification of an already-owned case.
+  if (ownerId && !existingOwnerId) {
+    await admin.from("notifications").insert({
+      user_id: ownerId,
+      type: "case_assigned",
+      title: "New case assigned to you",
+      body: threadForAI.subject ?? "(no subject)",
+      href: `/communication/${threadId}`,
+    });
+  }
 }
 
 const MY_EMAIL_FALLBACK = "info@artbridge.hu";

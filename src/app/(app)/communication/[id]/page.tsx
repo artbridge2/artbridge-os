@@ -8,6 +8,7 @@ import { getProfiles } from "@/lib/queries";
 import { getGmailConnectionStatus } from "@/lib/gmail/status";
 import { getShopifyConnectionStatus } from "@/lib/shopify/status";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
+import { extractEmail } from "@/lib/ai/provider";
 import { TicketHeader } from "@/components/communication/ticket-header";
 import { AiCasePanel } from "@/components/communication/ai-case-panel";
 import { ConversationPanel } from "@/components/communication/conversation-panel";
@@ -34,7 +35,7 @@ export default async function ThreadDetailPage({
   if (!thread) notFound();
 
   const shopifyMatch =
-    shopifyStatus.connected && thread.sender ? await findShopifyCustomerByEmail(thread.sender).catch(() => null) : null;
+    shopifyStatus.connected && thread.sender ? await findShopifyCustomerByEmail(extractEmail(thread.sender)).catch(() => null) : null;
 
   return (
     <div className="grid grid-cols-1 gap-6 pt-6 lg:grid-cols-[1fr_300px]">
@@ -47,7 +48,7 @@ export default async function ThreadDetailPage({
           Back to Communication
         </Link>
 
-        <TicketHeader thread={thread} />
+        <TicketHeader thread={thread} shopifyMatch={shopifyMatch} />
 
         <AiCasePanel threadId={thread.id} summary={thread.ai_summary} checklist={thread.ai_checklist} />
 
