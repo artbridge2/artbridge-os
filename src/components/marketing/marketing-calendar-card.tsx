@@ -9,6 +9,7 @@ const KIND_LABEL: Record<MarketingCalendarItem["kind"], string> = {
   campaign_start: "Launch",
   campaign_end: "Ends",
   event: "Event",
+  content_publish: "Publish",
 };
 
 export function MarketingCalendarCard({ items, compact = false }: { items: MarketingCalendarItem[]; compact?: boolean }) {

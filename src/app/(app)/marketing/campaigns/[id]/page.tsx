@@ -5,6 +5,7 @@ import { getCurrentProfile } from "@/lib/dal";
 import { hasCapability } from "@/lib/permissions";
 import { getProfiles } from "@/lib/queries";
 import { getCampaignById, getCampaignComments, getCampaignLinkedItems } from "@/lib/queries-marketing";
+import { getContentItems } from "@/lib/queries-content";
 import { CampaignHeader } from "@/components/marketing/campaign-header";
 import { CampaignLinkedItems } from "@/components/marketing/campaign-linked-items";
 import { CampaignDiscussion } from "@/components/marketing/campaign-discussion";
@@ -28,11 +29,12 @@ export default async function CampaignDetailPage({
   const profile = await getCurrentProfile();
   const canManage = await hasCapability(profile, "marketing_manage");
 
-  const [campaign, profiles, comments, linked] = await Promise.all([
+  const [campaign, profiles, comments, linked, contentItems] = await Promise.all([
     getCampaignById(id),
     getProfiles(),
     getCampaignComments(id),
     getCampaignLinkedItems(id),
+    getContentItems(),
   ]);
 
   if (!campaign) notFound();
@@ -47,7 +49,13 @@ export default async function CampaignDetailPage({
 
         <CampaignHeader campaign={campaign} />
 
-        <CampaignLinkedItems campaignId={campaign.id} items={linked.items} counts={linked.counts} activeType={activeType} />
+        <CampaignLinkedItems
+          campaignId={campaign.id}
+          items={linked.items}
+          counts={linked.counts}
+          activeType={activeType}
+          contentItems={contentItems.map((c) => ({ id: c.id, title: c.title }))}
+        />
 
         <CampaignDiscussion campaignId={campaign.id} campaignName={campaign.name} comments={comments} />
       </div>

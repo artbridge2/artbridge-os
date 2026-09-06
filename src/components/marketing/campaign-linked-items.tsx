@@ -11,11 +11,13 @@ export function CampaignLinkedItems({
   items,
   counts,
   activeType,
+  contentItems,
 }: {
   campaignId: string;
   items: CampaignLinkedItem[];
   counts: { all: number; content: number; email: number; seo: number };
   activeType?: CampaignLinkType;
+  contentItems: { id: string; title: string }[];
 }) {
   const filtered = activeType ? items.filter((i) => i.type === activeType) : items;
   const tabHref = (type?: CampaignLinkType) =>
@@ -25,7 +27,7 @@ export function CampaignLinkedItems({
     <div className="rounded-xl border border-[#eeeeee] bg-white p-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-semibold uppercase tracking-wide text-[#9aa0a8]">Linked work</p>
-        <AddLinkedItemDialog />
+        <AddLinkedItemDialog campaignId={campaignId} contentItems={contentItems} />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -56,7 +58,7 @@ export function CampaignLinkedItems({
         {filtered.length === 0 ? (
           <p className="rounded-lg border border-dashed border-[#e4e4e4] py-6 text-center text-[13px] text-[#9aa0a8]">
             {counts.all === 0
-              ? "No linked work yet — Content, Email and SEO items will appear here once those modules exist."
+              ? "No linked work yet — link a Content item, or check back once Email and SEO have linkable objects too."
               : "No linked items in this category."}
           </p>
         ) : (

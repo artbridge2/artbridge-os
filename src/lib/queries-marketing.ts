@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, formatDateOnly, todayInBudapest } from "@/lib/dates";
+import { getContentAttentionItems } from "@/lib/queries-content";
 import type {
   CampaignLinkedItem,
   CampaignStatus,
@@ -68,9 +69,10 @@ export async function getUpcomingCampaigns(limit = 5): Promise<MarketingCampaign
 
 /**
  * Resolves a Campaign's linked objects against their owning module's real data.
- * Content/Email/SEO don't exist yet, so every campaign_links row currently
- * resolves to nothing — this returns real counts (always 0 today) rather than
- * fabricating rows. Each module's own spec adds a resolver branch here.
+ * Content is real now (see resolveContentLinks below); Email/SEO don't exist
+ * as first-class linkable objects yet, so those branches still resolve to
+ * nothing rather than fabricating rows. Each module's own spec adds a
+ * resolver branch here as it lands.
  */
 export async function getCampaignLinkedItems(
   campaignId: string
@@ -89,14 +91,45 @@ export async function getCampaignLinkedItems(
     seo: rows.filter((l) => l.linked_type === "seo").length,
   };
 
-  // No resolvers registered yet — Content/Email/SEO modules aren't built.
-  const items: CampaignLinkedItem[] = [];
+  const contentLinks = rows.filter((l) => l.linked_type === "content");
+  const items: CampaignLinkedItem[] = await resolveContentLinks(supabase, contentLinks);
 
   return { items, counts };
 }
 
+async function resolveContentLinks(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  links: { id: string; linked_id: string }[]
+): Promise<CampaignLinkedItem[]> {
+  if (links.length === 0) return [];
+  const { data: contentItems } = await supabase
+    .from("content_items")
+    .select("id, title, status, publish_date, owner:profiles!content_items_owner_id_fkey(full_name)")
+    .in(
+      "id",
+      links.map((l) => l.linked_id)
+    );
+
+  const byId = new Map((contentItems ?? []).map((c) => [c.id, c]));
+  return links
+    .map((link): CampaignLinkedItem | null => {
+      const content = byId.get(link.linked_id) as { id: string; title: string; status: string; publish_date: string | null; owner: { full_name: string } | null } | undefined;
+      if (!content) return null;
+      return {
+        link_id: link.id,
+        type: "content",
+        title: content.title,
+        status: content.status,
+        owner: content.owner?.full_name ?? null,
+        date: content.publish_date,
+        href: `/marketing/content/${content.id}`,
+      };
+    })
+    .filter((item): item is CampaignLinkedItem => item !== null);
+}
+
 export interface MarketingAttentionItem {
-  source_type: "campaign";
+  source_type: "campaign" | "content";
   source_id: string;
   title: string;
   context: string;
@@ -109,10 +142,11 @@ export interface MarketingAttentionItem {
 }
 
 /**
- * Genuinely Campaign-level attention (spec §16) — a launch/status decision the
- * Campaign object itself needs, never a stand-in for a linked Content/Email/
- * SEO item's own review state (none of those exist yet, so no dedup work is
- * needed today; this is the seam where it plugs in later).
+ * Campaign-level attention (spec §16) — a launch/status decision the Campaign
+ * object itself needs — merged with Content's own review state (a Scheduled
+ * piece whose publish date has passed without being marked Published).
+ * Email/SEO don't have a review-state concept of their own yet; this is the
+ * seam where each plugs in as it lands.
  */
 export async function getCampaignAttentionItems(ownerId?: string): Promise<MarketingAttentionItem[]> {
   const campaigns = await getCampaigns(ownerId ? { ownerId } : {});
@@ -162,6 +196,24 @@ export async function getCampaignAttentionItems(ownerId?: string): Promise<Marke
       });
     }
   }
+
+  const overdueContent = await getContentAttentionItems();
+  for (const c of overdueContent) {
+    if (ownerId && c.owner_id !== ownerId) continue;
+    items.push({
+      source_type: "content",
+      source_id: c.id,
+      title: c.title,
+      context: "Publish date passed — still Scheduled",
+      owner: c.owner?.full_name ?? null,
+      ownerId: c.owner_id,
+      reason: "Publish date passed — still Scheduled",
+      date: c.publish_date,
+      href: `/marketing/content/${c.id}`,
+      overdue: true,
+    });
+  }
+
   return items;
 }
 
@@ -227,6 +279,21 @@ export async function getMarketingCalendarItems(from?: string, to?: string): Pro
       title: e.title,
       context: e.campaign?.name ?? e.event_type ?? null,
       href: `/marketing/calendar`,
+    });
+  }
+
+  let contentQuery = supabase.from("content_items").select("id, title, publish_date, status, campaign:marketing_campaigns(name)").not("publish_date", "is", null);
+  if (from) contentQuery = contentQuery.gte("publish_date", from);
+  if (to) contentQuery = contentQuery.lte("publish_date", to);
+  const { data: contentItems } = await contentQuery;
+  for (const c of (contentItems ?? []) as unknown as { id: string; title: string; publish_date: string; status: string; campaign: { name: string } | null }[]) {
+    items.push({
+      id: `content-${c.id}`,
+      kind: "content_publish",
+      date: c.publish_date,
+      title: c.title,
+      context: c.campaign?.name ?? "Content",
+      href: `/marketing/content/${c.id}`,
     });
   }
 

@@ -493,6 +493,51 @@ export const ONBOARDING_STEPS = [
 // Campaigns via CampaignLink rather than becoming generic marketing tickets).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Content
+// ---------------------------------------------------------------------------
+
+export type ContentType = "blog_post" | "social_post" | "video" | "email_copy" | "product_page_copy" | "other";
+export type ContentStatus = "idea" | "drafting" | "in_review" | "scheduled" | "published";
+
+export interface ContentItem {
+  id: string;
+  title: string;
+  content_type: ContentType;
+  status: ContentStatus;
+  body: string | null;
+  owner_id: string | null;
+  campaign_id: string | null;
+  publish_date: string | null;
+  published_url: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
+export interface ContentItemWithRelations extends ContentItem {
+  owner: Profile | null;
+  campaign: Pick<MarketingCampaign, "id" | "name"> | null;
+}
+
+export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
+  blog_post: "Blog post",
+  social_post: "Social post",
+  video: "Video",
+  email_copy: "Email copy",
+  product_page_copy: "Product page copy",
+  other: "Other",
+};
+
+export const CONTENT_STATUS_LABELS: Record<ContentStatus, string> = {
+  idea: "Idea",
+  drafting: "Drafting",
+  in_review: "In review",
+  scheduled: "Scheduled",
+  published: "Published",
+};
+
 export type CampaignStatus = "planning" | "active" | "completed" | "cancelled";
 
 export interface MarketingCampaign {
@@ -573,7 +618,7 @@ export interface MarketingCalendarEventWithRelations extends MarketingCalendarEv
 /** Unified Marketing Calendar row — derived from real Campaign dates, resolved linked-item dates, and standalone events. */
 export interface MarketingCalendarItem {
   id: string;
-  kind: "campaign_start" | "campaign_end" | "event";
+  kind: "campaign_start" | "campaign_end" | "event" | "content_publish";
   date: string;
   title: string;
   context: string | null;
