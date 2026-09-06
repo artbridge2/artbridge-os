@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { getAiInstruction } from "./instructions";
+import { loggedCreate } from "./usage-log";
 
 /**
  * Provider-abstracted artist research (spec §23). Everything the app needs
@@ -54,11 +55,12 @@ Write clearly, in a numbered or clearly-separated list per artist, since a later
 export interface ResearchTurnInput {
   history: { role: "user" | "assistant"; content: string }[];
   message: string;
+  sessionId?: string;
 }
 
 /** One turn of the conversational research session. Throws on provider failure — the session/prompt is preserved by the caller either way. */
 export async function runResearchTurn(input: ResearchTurnInput): Promise<string> {
-  const response = await client().messages.create({
+  const response = await loggedCreate(client(), {
     model: RESEARCH_MODEL,
     max_tokens: 4096,
     system: await buildResearchSystemPrompt(),
@@ -67,7 +69,7 @@ export async function runResearchTurn(input: ResearchTurnInput): Promise<string>
       ...input.history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user" as const, content: input.message },
     ],
-  });
+  }, { capability: "artist_research_turn", relatedObjectId: input.sessionId });
 
   const text = response.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -97,8 +99,8 @@ export type CandidateExtraction = z.infer<typeof CandidateSchema>;
  * candidates. Extraction-only — must not add facts beyond what the text
  * already states (enforced by prompt, not just schema).
  */
-export async function extractCandidates(researchText: string): Promise<CandidateExtraction[]> {
-  const response = await client().messages.create({
+export async function extractCandidates(researchText: string, relatedObjectId?: string): Promise<CandidateExtraction[]> {
+  const response = await loggedCreate(client(), {
     model: EXTRACT_MODEL,
     max_tokens: 4096,
     system:
@@ -149,7 +151,7 @@ export async function extractCandidates(researchText: string): Promise<Candidate
     ],
     tool_choice: { type: "tool", name: "extract_candidates" },
     messages: [{ role: "user", content: researchText }],
-  });
+  }, { capability: "artist_research_extract", relatedObjectId });
 
   const toolUse = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!toolUse) return [];
@@ -166,9 +168,9 @@ export async function extractCandidates(researchText: string): Promise<Candidate
  * further. Returns free text — pipe through extractCandidates() same as the
  * broad turn, since it's the same "text -> structured, never fabricate" step.
  */
-export async function researchCandidateContact(fullName: string, context: string): Promise<string> {
+export async function researchCandidateContact(fullName: string, context: string, relatedObjectId?: string): Promise<string> {
   const [global, artistResearch] = await Promise.all([getAiInstruction("global"), getAiInstruction("artist_research")]);
-  const response = await client().messages.create({
+  const response = await loggedCreate(client(), {
     model: RESEARCH_MODEL,
     max_tokens: 2048,
     system: `You are Artbridge's artist-research assistant doing a focused deep dive on one specific, already-identified artist candidate.
@@ -186,7 +188,7 @@ Run several distinct searches to build a complete, sourced picture of this one a
 Report full_name, artist_name (if different), location, bio, technique, website, instagram, email (or explicitly "not found"), 2-3 source URLs actually used, and a fit assessment (Strong/Possible/Weak fit) with one sentence of reasoning. Never invent anything you did not find.`,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 } as unknown as Anthropic.Tool],
     messages: [{ role: "user", content: `Research this candidate in depth: ${fullName}. Context from initial discovery: ${context}` }],
-  });
+  }, { capability: "artist_research_deep_dive", relatedObjectId });
 
   const text = response.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -202,8 +204,8 @@ export async function generateOutreachDraft(artist: {
   bio: string | null;
   technique: string | null;
   fit_rationale: string | null;
-}): Promise<string> {
-  const response = await client().messages.create({
+}, relatedObjectId?: string): Promise<string> {
+  const response = await loggedCreate(client(), {
     model: RESEARCH_MODEL,
     max_tokens: 1024,
     system:
@@ -214,7 +216,7 @@ export async function generateOutreachDraft(artist: {
         content: `Artist: ${artist.artist_name ?? artist.full_name}\nTechnique: ${artist.technique ?? "unknown"}\nBio: ${artist.bio ?? "unknown"}\nWhy we like their work: ${artist.fit_rationale ?? "n/a"}\n\nWrite the outreach email.`,
       },
     ],
-  });
+  }, { capability: "artist_outreach_draft", relatedObjectId });
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
   return textBlock?.text?.trim() ?? "";
 }

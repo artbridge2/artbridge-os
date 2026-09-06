@@ -94,7 +94,7 @@ export async function applyClassification(
   if (result.status === "needs_reply") {
     try {
       const shopifyContext = result.shopify_customer_id ? await fetchShopifyDraftContext(senderRaw) : null;
-      draftReply = await generateReplyDraft(threadForAI, shopifyContext);
+      draftReply = await generateReplyDraft(threadForAI, shopifyContext, threadId);
       draftGeneratedAt = new Date().toISOString();
     } catch (err) {
       console.error("[sync] auto draft generation failed", err);
@@ -262,7 +262,7 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
         isInbound: m.isInbound,
       })),
     };
-    const result = await classifyThread(threadForAI);
+    const result = await classifyThread(threadForAI, thread.id);
 
     await applyClassification(
       admin,
@@ -501,7 +501,7 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
           isInbound: m.is_inbound,
         })),
       };
-      const result = await classifyThread(threadForAI);
+      const result = await classifyThread(threadForAI, thread.id);
 
       await applyClassification(
         admin,

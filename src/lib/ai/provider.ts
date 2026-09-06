@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { getAiInstruction } from "./instructions";
+import { loggedCreate } from "./usage-log";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -287,9 +288,10 @@ async function runShopifyLookupTool(email: string): Promise<string> {
  * completion. Throws if the AI provider call fails — callers decide how to
  * handle that (e.g. leave status as-is and retry later).
  */
-export async function classifyThread(thread: ThreadForAI): Promise<ClassificationResult> {
+export async function classifyThread(thread: ThreadForAI, relatedObjectId?: string): Promise<ClassificationResult> {
   const system = await buildClassifySystemPrompt();
   const tools = [LOOKUP_TOOL, CLASSIFY_TOOL];
+  const usageMeta = { capability: "communication_classify", relatedObjectId };
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
@@ -299,14 +301,14 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
     },
   ];
 
-  let response = await client().messages.create({
+  let response = await loggedCreate(client(), {
     model: CLASSIFY_MODEL,
     max_tokens: 1024,
     system,
     tools,
     tool_choice: { type: "auto" },
     messages,
-  });
+  }, usageMeta);
 
   const lookupUse = response.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "look_up_shopify_customer");
   const classifyInSameTurn = response.content.some((block) => block.type === "tool_use" && block.name === "classify_email_thread");
@@ -326,14 +328,14 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
       content: [{ type: "tool_result", tool_use_id: lookupUse.id, content: toolResult }],
     });
 
-    response = await client().messages.create({
+    response = await loggedCreate(client(), {
       model: CLASSIFY_MODEL,
       max_tokens: 1024,
       system,
       tools,
       tool_choice: { type: "tool", name: "classify_email_thread" },
       messages,
-    });
+    }, usageMeta);
   }
 
   let classification = response.content.find(
@@ -346,14 +348,14 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
   if (!classification) {
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: "Call classify_email_thread now with your classification." });
-    response = await client().messages.create({
+    response = await loggedCreate(client(), {
       model: CLASSIFY_MODEL,
       max_tokens: 1024,
       system,
       tools,
       tool_choice: { type: "tool", name: "classify_email_thread" },
       messages,
-    });
+    }, usageMeta);
     classification = response.content.find(
       (block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "classify_email_thread"
     );
@@ -387,12 +389,12 @@ export interface ShopifyDraftContext {
 }
 
 /** Generates a reply draft body for a thread. Never sends anything — the caller is responsible for the explicit send action. */
-export async function generateReplyDraft(thread: ThreadForAI, shopifyContext?: ShopifyDraftContext | null): Promise<string> {
+export async function generateReplyDraft(thread: ThreadForAI, shopifyContext?: ShopifyDraftContext | null, relatedObjectId?: string): Promise<string> {
   const contextBlock = shopifyContext
     ? `\n\nReal Shopify context for this customer (use only what's relevant, never invent beyond this):\nCustomer: ${shopifyContext.customerName}\nOrders: ${shopifyContext.ordersCount}\n${shopifyContext.recentOrders.map((o) => `- ${o.name} (${o.createdAt.slice(0, 10)}) — ${o.fulfillmentStatus ?? "unknown status"}`).join("\n")}`
     : "";
 
-  const message = await client().messages.create({
+  const message = await loggedCreate(client(), {
     model: DRAFT_MODEL,
     max_tokens: 1024,
     system: await buildDraftSystemPrompt(),
@@ -404,7 +406,7 @@ export async function generateReplyDraft(thread: ThreadForAI, shopifyContext?: S
         )}${contextBlock}\n\nWrite the reply to the most recent inbound message.`,
       },
     ],
-  });
+  }, { capability: "communication_draft", relatedObjectId });
 
   const textBlock = message.content.find(
     (block): block is Anthropic.TextBlock => block.type === "text"

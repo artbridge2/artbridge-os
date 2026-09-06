@@ -219,7 +219,7 @@ export async function setCategory(threadId: string, category: EmailCategory) {
         participants: [],
         messages: messages.map((m) => ({ sender: m.sender, body: m.sanitized_body ?? "", sentAt: m.sent_at, isInbound: m.is_inbound })),
       };
-      const result = await classifyThread(threadForAI);
+      const result = await classifyThread(threadForAI, threadId);
       // A human just confirmed this is a real, correctly-categorized case —
       // the refresh pass must never be able to suppress it via a stale
       // should_create_case=false guess.
@@ -300,7 +300,7 @@ export async function generateDraft(threadId: string): Promise<string> {
       sentAt: m.sent_at,
       isInbound: m.is_inbound,
     })),
-  });
+  }, undefined, threadId);
 
   await supabase
     .from("email_threads")

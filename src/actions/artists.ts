@@ -341,10 +341,10 @@ function mergeDeepDive(shallow: CandidateExtraction, deep: CandidateExtraction |
 async function runDiscoveryTurn(sessionId: string, history: { role: "user" | "assistant"; content: string }[], message: string) {
   const supabase = await createClient();
 
-  const reply = await runResearchTurn({ history, message });
+  const reply = await runResearchTurn({ history, message, sessionId });
   await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "assistant", content: reply });
 
-  const shallowCandidates = await extractCandidates(reply).catch(() => []);
+  const shallowCandidates = await extractCandidates(reply, sessionId).catch(() => []);
   if (shallowCandidates.length === 0) return;
 
   const { data: existingResults } = await supabase.from("artist_research_results").select("full_name").eq("session_id", sessionId);
@@ -372,8 +372,8 @@ async function runDiscoveryTurn(sessionId: string, history: { role: "user" | "as
   const deepDived = await Promise.all(
     toDeepDive.map(async (candidate) => {
       try {
-        const text = await researchCandidateContact(candidate.full_name, candidate.bio ?? candidate.fit_rationale ?? "");
-        const [deep] = await extractCandidates(text);
+        const text = await researchCandidateContact(candidate.full_name, candidate.bio ?? candidate.fit_rationale ?? "", sessionId);
+        const [deep] = await extractCandidates(text, sessionId);
         return mergeDeepDive(candidate, deep);
       } catch (err) {
         console.error("[artists] deep-dive research failed for", candidate.full_name, err);
@@ -450,8 +450,8 @@ export async function researchDeeper(sessionId: string, resultId: string) {
   if (!result) return;
 
   try {
-    const text = await researchCandidateContact(result.full_name, result.bio ?? result.fit_rationale ?? "");
-    const [deep] = await extractCandidates(text);
+    const text = await researchCandidateContact(result.full_name, result.bio ?? result.fit_rationale ?? "", sessionId);
+    const [deep] = await extractCandidates(text, sessionId);
 
     if (deep) {
       const existingLinks = ((result.source_links as ArtistLink[] | null) ?? []).map((l) => l.url);
@@ -539,7 +539,7 @@ export async function generateArtistOutreachDraft(artistId: string): Promise<str
   const supabase = await createClient();
   const { data: artist } = await supabase.from("artists").select("full_name, artist_name, bio, technique, fit_rationale").eq("id", artistId).single();
   if (!artist) return "";
-  return generateOutreachDraft(artist);
+  return generateOutreachDraft(artist, artistId);
 }
 
 export async function sendArtistOutreach(artistId: string, subject: string, body: string) {
