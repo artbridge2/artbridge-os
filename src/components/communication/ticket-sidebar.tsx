@@ -22,6 +22,7 @@ import type { ShopifyCustomerMatch } from "@/lib/shopify/lookup";
 import { initials, senderDisplayName } from "@/lib/communication-style";
 import {
   CASE_PRIORITY_LABELS,
+  CATEGORY_LABELS_SINGULAR,
   CUSTOMER_ISSUE_TYPES,
   ISSUE_TYPE_LABELS,
   ROLE_LABELS,
@@ -99,7 +100,7 @@ export function TicketSidebar({
 
   return (
     <div className="space-y-4">
-      <SidebarCard title="Customer">
+      <SidebarCard title={CATEGORY_LABELS_SINGULAR[thread.category]}>
         <div className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#f0f0f0] text-[12.5px] font-semibold text-[#5a616c]">
             {initials(name)}
