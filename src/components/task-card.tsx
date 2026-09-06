@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Repeat } from "lucide-react";
+import { FolderKanban, Repeat } from "lucide-react";
 import { CompleteCheckbox } from "@/components/complete-checkbox";
 import { PriorityBadge } from "@/components/priority-badge";
 import { formatDueLabel, todayInBudapest } from "@/lib/dates";
@@ -38,6 +38,12 @@ export function TaskCard({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {showOwner && <span>{ROLE_LABELS[task.owner?.role ?? "adam"]}</span>}
+          {task.project && (
+            <span className="inline-flex items-center gap-1 rounded bg-[#ece9fd] px-1.5 py-0.5 text-[#6c5ce7]">
+              <FolderKanban className="size-3" />
+              {task.project.name}
+            </span>
+          )}
           {task.area && <span>{task.area.name}</span>}
           {task.due_date && (
             <span className={cn(isOverdue && "font-medium text-red-600 dark:text-red-400")}>
