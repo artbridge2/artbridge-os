@@ -10,6 +10,6 @@ export const maxDuration = 60;
 /** Manual backlog catch-up trigger for the Settings page — safe to click repeatedly. */
 export async function POST() {
   await getCurrentProfile();
-  const result = await classifyBacklogBatch(12);
+  const result = await classifyBacklogBatch(45_000);
   return NextResponse.json(result);
 }

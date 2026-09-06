@@ -246,6 +246,7 @@ const INITIAL_SYNC_BOUND = 40;
 
 /** One-time backfill for the last `days` days. Bounded and resumable — safe to re-run, upserts by gmail_thread_id. */
 export async function runInitialSync(days = 30): Promise<SyncResult> {
+  const startedAt = Date.now();
   const admin = createAdminClient();
   const myEmail = await getConnectedEmail(admin);
 
@@ -277,6 +278,7 @@ export async function runInitialSync(days = 30): Promise<SyncResult> {
   let processed = 0;
   let errors = 0;
   for (const id of threadIds.slice(0, INITIAL_SYNC_BOUND)) {
+    if (Date.now() - startedAt > 45_000) break;
     try {
       const fetched = await getThread(id, myEmail);
       await upsertThread(admin, fetched);
@@ -297,6 +299,7 @@ export async function runInitialSync(days = 30): Promise<SyncResult> {
 
 /** Incremental sync via Gmail historyId — call this from the cron route. */
 export async function runIncrementalSync(): Promise<SyncResult> {
+  const startedAt = Date.now();
   const admin = createAdminClient();
   const { data: integration } = await admin
     .from("gmail_integration")
@@ -334,7 +337,8 @@ export async function runIncrementalSync(): Promise<SyncResult> {
   const historyId = await getCurrentHistoryId();
   await admin.from("gmail_integration").update({ last_synced_at: new Date().toISOString(), last_history_id: historyId }).eq("id", integration.id);
 
-  const backfill = await classifyBacklogBatch(8);
+  const remainingBudgetMs = 45_000 - (Date.now() - startedAt);
+  const backfill = remainingBudgetMs > 5_000 ? await classifyBacklogBatch(remainingBudgetMs) : { processed: 0, errors: 0, remaining: 0 };
 
   return { threadsProcessed: processed + backfill.processed, errors: errors + backfill.errors };
 }
@@ -354,21 +358,28 @@ export interface BackfillResult {
  * via the same classification_version/last_classified_message_id guard used
  * everywhere else, and naturally becomes a no-op once caught up.
  */
-export async function classifyBacklogBatch(limit = 15): Promise<BackfillResult> {
+export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<BackfillResult> {
   const admin = createAdminClient();
+  const startedAt = Date.now();
 
+  // Pull a generous pool up front (cheap — one query) rather than guessing a
+  // fixed per-invocation count: real per-thread latency varies a lot (email
+  // length, whether a Shopify lookup round trip happens), so pace by actual
+  // elapsed time and stop with a safety margin before Vercel's hard cutoff
+  // instead of risking a mid-call timeout that loses whatever didn't commit.
   const { data: threads } = await admin
     .from("email_threads")
     .select("id, subject, participants, owner_id")
     .eq("suppressed", false)
     .neq("classification_version", CLASSIFICATION_VERSION)
     .order("created_at", { ascending: true })
-    .limit(limit);
+    .limit(50);
 
   let processed = 0;
   let errors = 0;
 
   for (const thread of threads ?? []) {
+    if (Date.now() - startedAt > maxBudgetMs) break;
     try {
       const { data: messages } = await admin
         .from("email_messages")

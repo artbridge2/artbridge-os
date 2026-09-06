@@ -82,6 +82,8 @@ async function buildClassifySystemPrompt(): Promise<string> {
 
   return `You triage the shared Artbridge inbox (info@artbridge.hu). For each thread, decide whether it needs an active case at all, then classify it — always from the actual content, never from sender/domain alone.
 
+Call the appropriate tool immediately. Do not write out translations, analysis or reasoning as text first — think it through silently and go straight to the tool call.
+
 ${global}
 
 should_create_case = false for newsletters, spam, phishing, irrelevant promotions, and routine no-reply/automated notifications that require no action. When genuinely uncertain whether something matters, set should_create_case = true with category "other" and status "needs_review" rather than discarding it — never silently drop something that might be important.
