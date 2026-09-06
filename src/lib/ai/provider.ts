@@ -65,13 +65,33 @@ function client() {
 const CLASSIFY_MODEL = process.env.ANTHROPIC_CLASSIFY_MODEL || "claude-haiku-4-5-20251001";
 const DRAFT_MODEL = process.env.ANTHROPIC_DRAFT_MODEL || "claude-sonnet-5";
 
+// Guards against real-world pathological threads (a 220k-token thread body
+// hit Haiku's 200k context window in production) — cap each message body and
+// the message count so one oversized thread can't fail classification
+// outright instead of just losing some quoted-history detail.
+const MAX_MESSAGE_CHARS = 6000;
+const MAX_MESSAGES = 20;
+
+function truncateBody(body: string): string {
+  if (body.length <= MAX_MESSAGE_CHARS) return body;
+  return body.slice(0, MAX_MESSAGE_CHARS) + "\n[...truncated, message continues...]";
+}
+
 function conversationText(thread: ThreadForAI): string {
-  return thread.messages
+  // Keep the first message (original context) plus the most recent ones —
+  // the middle of a very long back-and-forth matters least for classifying
+  // current status.
+  const messages =
+    thread.messages.length > MAX_MESSAGES
+      ? [thread.messages[0]!, ...thread.messages.slice(-(MAX_MESSAGES - 1))]
+      : thread.messages;
+
+  return messages
     .map(
       (m) =>
         `[${m.isInbound ? "INBOUND" : "OUTBOUND"}${m.sentAt ? " " + m.sentAt : ""}] ${
           m.sender ?? "unknown"
-        }:\n${m.body}`
+        }:\n${truncateBody(m.body)}`
     )
     .join("\n\n---\n\n");
 }
