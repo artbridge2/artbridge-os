@@ -29,6 +29,18 @@ export async function hasCapability(profile: Pick<Profile, "id" | "role">, capab
   return caps[capability];
 }
 
+/** True if any Communication category is accessible — the real gate for the module's own pages, not just the sidebar link. */
+export async function canAccessCommunication(profile: Pick<Profile, "id" | "role">): Promise<boolean> {
+  const caps = await getEffectiveCapabilities(profile);
+  return (
+    caps.communications_customer ||
+    caps.communications_artist ||
+    caps.communications_developer ||
+    caps.communications_supplier ||
+    caps.communications_other
+  );
+}
+
 /** Same-role default capabilities, ignoring per-user overrides — used by the Team & Permissions matrix. */
 export async function getRoleCapabilityMatrix(): Promise<Record<Role, Record<CapabilityKey, boolean>>> {
   const supabase = await createClient();

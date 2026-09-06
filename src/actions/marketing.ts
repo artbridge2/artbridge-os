@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/dal";
+import { hasCapability } from "@/lib/permissions";
 import { getProfiles } from "@/lib/queries";
 import type { CampaignStatus, TaskPriority } from "@/lib/types";
 
@@ -11,10 +12,10 @@ function revalidateMarketingViews() {
   revalidatePath("/", "layout");
 }
 
-/** Campaign creation/editing/lifecycle is admin-managed (spec §20) — Curator can view and discuss but not manage. */
+/** Campaign creation/editing/lifecycle needs marketing_manage (spec §20) — capability-driven, not a hardcoded role check, so an admin can grant it without a code change. */
 async function requireAdmin() {
   const me = await getCurrentProfile();
-  if (me.role === "kurator") throw new Error("NOT_AUTHORIZED");
+  if (!(await hasCapability(me, "marketing_manage"))) throw new Error("NOT_AUTHORIZED");
   return me;
 }
 

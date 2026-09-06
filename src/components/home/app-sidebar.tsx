@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Home,
   MessageCircle,
@@ -18,7 +18,7 @@ import {
   CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CATEGORY_LABELS, COMMUNICATION_CATEGORY_GROUPS, type EmailCategory, type Role } from "@/lib/types";
+import type { EmailCategory } from "@/lib/types";
 
 function Badge({ count }: { count: number }) {
   if (!count) return null;
@@ -72,11 +72,14 @@ function NavRow({
   );
 }
 
-function SubNavRow({ href, label, count }: { href: string; label: string; count?: number }) {
+function SubNavRow({ href, label, count, active }: { href: string; label: string; count?: number; active?: boolean }) {
   return (
     <Link
       href={href}
-      className="flex h-[34px] items-center gap-2.5 rounded-lg pl-[42px] pr-3 text-[13.5px] text-[#5a616c] hover:bg-[#f4f4f4]"
+      className={cn(
+        "flex h-[34px] items-center gap-2.5 rounded-lg pl-[42px] pr-3 text-[13.5px] hover:bg-[#f4f4f4]",
+        active ? "font-semibold text-[#12181f]" : "text-[#5a616c]"
+      )}
     >
       <span className="flex-1 truncate">{label}</span>
       {typeof count === "number" && <Badge count={count} />}
@@ -85,25 +88,39 @@ function SubNavRow({ href, label, count }: { href: string; label: string; count?
 }
 
 export function AppSidebar({
-  role,
+  canSeeCommunication,
+  canSeeArtists,
+  canSeeMarketing,
+  canSeeProjects,
+  canSeeCalendar,
+  canSeeTasks,
   communicationCounts,
   taskCount,
   artistCount,
   activeCampaignCount,
 }: {
-  role: Role;
+  canSeeCommunication: boolean;
+  canSeeArtists: boolean;
+  canSeeMarketing: boolean;
+  canSeeProjects: boolean;
+  canSeeCalendar: boolean;
+  canSeeTasks: boolean;
   communicationCounts?: { total: number; byCategory: Partial<Record<EmailCategory, number>> };
   taskCount?: number;
   artistCount?: number;
   activeCampaignCount?: number;
 }) {
   const pathname = usePathname();
-  const [marketingOpen, setMarketingOpen] = useState(pathname.startsWith("/marketing"));
-  const [communicationOpen, setCommunicationOpen] = useState(pathname.startsWith("/communication"));
-  // Spec §13: curators have no standalone Communication module access at all.
-  const canSeeCommunication = role !== "kurator";
+  const isMarketingRoute = pathname.startsWith("/marketing");
+  const [marketingOpen, setMarketingOpen] = useState(isMarketingRoute);
+  // Re-expand whenever navigation lands on a Marketing route (client-side nav
+  // between child/detail pages doesn't remount this component, so the
+  // initial useState alone wouldn't catch it) — Marketing stays contextually
+  // expanded across Overview/Campaigns/Content/Email/SEO per the AppShell spec.
+  useEffect(() => {
+    if (isMarketingRoute) setMarketingOpen(true);
+  }, [isMarketingRoute]);
 
-  const counts = communicationCounts?.byCategory ?? {};
   const communicationTotal = communicationCounts?.total ?? 0;
 
   return (
@@ -117,69 +134,73 @@ export function AppSidebar({
         <div className="flex flex-col">
           <NavRow href="/" icon={Home} label="Home" active={pathname === "/"} />
           {canSeeCommunication && (
+            <NavRow
+              href="/communication"
+              icon={MessageCircle}
+              label="Communication"
+              count={communicationTotal}
+              active={pathname.startsWith("/communication")}
+            />
+          )}
+          {canSeeTasks && (
+            <NavRow href="/tasks" icon={CheckSquare} label="Tasks" count={taskCount ?? 0} active={pathname.startsWith("/tasks")} />
+          )}
+
+          {canSeeMarketing && (
             <>
-              <button
-                type="button"
-                onClick={() => setCommunicationOpen((v) => !v)}
-                className="flex h-11 items-center gap-2.5 rounded-lg px-3 text-left text-[14px] font-normal text-[#3d4451] hover:bg-[#f4f4f4]"
-              >
-                <MessageCircle className="size-[18px] shrink-0 text-[#3d4451]" />
-                <span className="flex-1 truncate">Communication</span>
-                <Badge count={communicationTotal} />
-                {communicationOpen ? (
-                  <ChevronUp className="size-3.5 text-[#9aa1ab]" />
-                ) : (
-                  <ChevronDown className="size-3.5 text-[#9aa1ab]" />
-                )}
-              </button>
-              {communicationOpen && (
+              <div className="flex items-center">
+                <Link
+                  href="/marketing"
+                  onClick={() => setMarketingOpen(true)}
+                  className={cn(
+                    "flex h-11 flex-1 items-center gap-2.5 rounded-lg px-3 text-[14px] hover:bg-[#f4f4f4]",
+                    isMarketingRoute ? "font-semibold text-[#12181f]" : "font-normal text-[#3d4451]"
+                  )}
+                >
+                  <Megaphone className="size-[18px] shrink-0 text-[#3d4451]" />
+                  <span className="flex-1 truncate">Marketing</span>
+                  <Badge count={activeCampaignCount ?? 0} />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setMarketingOpen((v) => !v)}
+                  aria-label={marketingOpen ? "Collapse Marketing" : "Expand Marketing"}
+                  className="flex h-11 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-[#f4f4f4]"
+                >
+                  {marketingOpen ? (
+                    <ChevronUp className="size-3.5 text-[#9aa1ab]" />
+                  ) : (
+                    <ChevronDown className="size-3.5 text-[#9aa1ab]" />
+                  )}
+                </button>
+              </div>
+              {marketingOpen && (
                 <div className="flex flex-col">
-                  <SubNavRow href="/communication" label="Overview" />
-                  {COMMUNICATION_CATEGORY_GROUPS.map((cat) => (
-                    <SubNavRow key={cat} href={`/communication?category=${cat}`} label={CATEGORY_LABELS[cat]} count={counts[cat] ?? 0} />
-                  ))}
+                  <SubNavRow href="/marketing" label="Overview" active={pathname === "/marketing"} />
+                  <SubNavRow href="/marketing/campaigns" label="Campaigns" count={activeCampaignCount ?? 0} active={pathname.startsWith("/marketing/campaigns")} />
+                  <SubNavRow href="/marketing/content" label="Content" active={pathname.startsWith("/marketing/content")} />
+                  <SubNavRow href="/marketing/email" label="Email Marketing" active={pathname.startsWith("/marketing/email")} />
+                  <SubNavRow href="/marketing/seo" label="SEO" active={pathname.startsWith("/marketing/seo")} />
                 </div>
               )}
             </>
           )}
-          <NavRow href="/tasks" icon={CheckSquare} label="Tasks" count={taskCount ?? 0} active={pathname.startsWith("/tasks")} />
-          <button
-            type="button"
-            onClick={() => setMarketingOpen((v) => !v)}
-            className="flex h-11 items-center gap-2.5 rounded-lg px-3 text-left text-[14px] font-normal text-[#3d4451] hover:bg-[#f4f4f4]"
-          >
-            <Megaphone className="size-[18px] shrink-0 text-[#3d4451]" />
-            <span className="flex-1 truncate">Marketing</span>
-            <Badge count={activeCampaignCount ?? 0} />
-            {marketingOpen ? (
-              <ChevronUp className="size-3.5 text-[#9aa1ab]" />
-            ) : (
-              <ChevronDown className="size-3.5 text-[#9aa1ab]" />
-            )}
-          </button>
-          {marketingOpen && (
-            <div className="flex flex-col">
-              <SubNavRow href="/marketing" label="Overview" />
-              <SubNavRow href="/marketing/campaigns" label="Campaigns" count={activeCampaignCount ?? 0} />
-              <SubNavRow href="/marketing/content" label="Content" />
-              <SubNavRow href="/marketing/email" label="Email Marketing" />
-              <SubNavRow href="/marketing/seo" label="SEO" />
-            </div>
-          )}
         </div>
 
         <div className="mt-2 flex flex-col">
-          <NavRow href="/artists" icon={User} label="Artists" count={artistCount ?? 0} />
-          <NavRow href="/projects" icon={Folder} label="Projects" count={2} />
+          {canSeeArtists && (
+            <NavRow href="/artists" icon={User} label="Artists" count={artistCount ?? 0} active={pathname.startsWith("/artists")} />
+          )}
+          {canSeeProjects && <NavRow href="/projects" icon={Folder} label="Projects" active={pathname.startsWith("/projects")} />}
         </div>
 
         <div className="mt-[30px] flex flex-col border-t border-[#eeeeee] pt-2.5">
-          <NavRow href="/calendar" icon={Calendar} label="Calendar" />
+          {canSeeCalendar && <NavRow href="/calendar" icon={Calendar} label="Calendar" active={pathname.startsWith("/calendar")} />}
           <NavRow href="https://drive.google.com" icon={Folder} label="Drive" external />
         </div>
 
         <div className="mt-auto flex flex-col border-t border-[#eeeeee] pt-2.5">
-          <NavRow href="/settings" icon={Settings} label="Settings" />
+          <NavRow href="/settings" icon={Settings} label="Settings" active={pathname.startsWith("/settings")} />
         </div>
       </nav>
 

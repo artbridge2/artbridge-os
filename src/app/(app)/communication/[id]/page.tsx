@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getCurrentProfile } from "@/lib/dal";
+import { canAccessCommunication } from "@/lib/permissions";
 import { getEmailMessages, getEmailThreadById } from "@/lib/queries-inbox";
 import { getProfiles } from "@/lib/queries";
 import { getGmailConnectionStatus } from "@/lib/gmail/status";
@@ -19,7 +20,7 @@ export default async function ThreadDetailPage({
 }) {
   const { id } = await params;
   const profile = await getCurrentProfile();
-  if (profile.role === "kurator") redirect("/");
+  if (!(await canAccessCommunication(profile))) redirect("/");
 
   const [thread, messages, profiles, gmailStatus, shopifyStatus] = await Promise.all([
     getEmailThreadById(id),

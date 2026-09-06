@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getCurrentProfile } from "@/lib/dal";
+import { hasCapability } from "@/lib/permissions";
 import { getProfiles } from "@/lib/queries";
 import { getCampaignById, getCampaignComments, getCampaignLinkedItems } from "@/lib/queries-marketing";
 import { CampaignHeader } from "@/components/marketing/campaign-header";
@@ -25,7 +26,7 @@ export default async function CampaignDetailPage({
   const activeType = typeParam && LINK_TYPES.includes(typeParam) ? typeParam : undefined;
 
   const profile = await getCurrentProfile();
-  const canManage = profile.role !== "kurator";
+  const canManage = await hasCapability(profile, "marketing_manage");
 
   const [campaign, profiles, comments, linked] = await Promise.all([
     getCampaignById(id),

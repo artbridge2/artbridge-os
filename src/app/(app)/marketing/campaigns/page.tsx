@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentProfile } from "@/lib/dal";
+import { hasCapability } from "@/lib/permissions";
 import { getProfiles } from "@/lib/queries";
 import { getCampaigns, getCampaignStatusCounts } from "@/lib/queries-marketing";
 import { CampaignRow } from "@/components/marketing/campaign-row";
@@ -17,7 +18,7 @@ export default async function CampaignsPage({
 }) {
   const params = await searchParams;
   const profile = await getCurrentProfile();
-  const canManage = profile.role !== "kurator";
+  const canManage = await hasCapability(profile, "marketing_manage");
 
   const statusParam = typeof params.status === "string" ? (params.status as CampaignStatus) : undefined;
   const status = statusParam && ALL_STATUSES.includes(statusParam) ? statusParam : undefined;

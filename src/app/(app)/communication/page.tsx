@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentProfile } from "@/lib/dal";
+import { canAccessCommunication } from "@/lib/permissions";
 import { getProfiles } from "@/lib/queries";
 import { getGmailConnectionStatus } from "@/lib/gmail/status";
 import {
@@ -26,7 +27,7 @@ export default async function CommunicationPage({
 }) {
   const params = await searchParams;
   const profile = await getCurrentProfile();
-  if (profile.role === "kurator") redirect("/");
+  if (!(await canAccessCommunication(profile))) redirect("/");
 
   const category = typeof params.category === "string" ? params.category : undefined;
   const statusParam = typeof params.status === "string" ? (params.status as CaseStatus) : undefined;

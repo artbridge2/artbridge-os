@@ -2,12 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getCurrentProfile } from "@/lib/dal";
+import { canAccessCommunication } from "@/lib/permissions";
 import { getEmailThreads } from "@/lib/queries-inbox";
 import { ConversationRow } from "@/components/communication/conversation-row";
 
 export default async function ArchivePage() {
   const profile = await getCurrentProfile();
-  if (profile.role === "kurator") redirect("/");
+  if (!(await canAccessCommunication(profile))) redirect("/");
 
   const threads = await getEmailThreads({ archived: true });
 
