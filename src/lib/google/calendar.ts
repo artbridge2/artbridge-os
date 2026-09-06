@@ -28,13 +28,12 @@ export interface CalendarEventSummary {
   htmlLink: string;
 }
 
-/** Current week's events (Mon-Sun, Budapest) from the connected info@artbridge.hu calendar. Throws on failure — callers show a Calendar-unavailable retry state, never fake zero events. */
-export async function getWeekEvents(): Promise<CalendarEventSummary[]> {
+/** Real events (Google Calendar "primary") in [start, end]. Throws on failure — callers show a Calendar-unavailable retry state, never fake zero events. */
+export async function getCalendarEvents(start: Date, end: Date): Promise<CalendarEventSummary[]> {
   const { auth, scopes } = await getAuthorizedGoogleClient();
   if (!scopes?.includes(CALENDAR_SCOPE)) throw new Error("CALENDAR_NOT_CONNECTED");
 
   const calendar = google.calendar({ version: "v3", auth });
-  const { start, end } = weekBounds();
 
   const { data } = await calendar.events.list({
     calendarId: "primary",
@@ -42,7 +41,7 @@ export async function getWeekEvents(): Promise<CalendarEventSummary[]> {
     timeMax: end.toISOString(),
     singleEvents: true,
     orderBy: "startTime",
-    maxResults: 50,
+    maxResults: 100,
   });
 
   return (data.items ?? [])
@@ -55,4 +54,10 @@ export async function getWeekEvents(): Promise<CalendarEventSummary[]> {
       allDay: !e.start?.dateTime,
       htmlLink: e.htmlLink || "https://calendar.google.com",
     }));
+}
+
+/** Current week's events (Mon-Sun, Budapest) — used by the Home "Today" card. */
+export async function getWeekEvents(): Promise<CalendarEventSummary[]> {
+  const { start, end } = weekBounds();
+  return getCalendarEvents(start, end);
 }
