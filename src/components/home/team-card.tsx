@@ -1,5 +1,9 @@
-import Link from "next/link";
+"use client";
+
+import { useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Users, ChevronRight } from "lucide-react";
+import { setViewingUser } from "@/actions/viewing";
 
 export interface TeamMember {
   id: string;
@@ -9,8 +13,18 @@ export interface TeamMember {
   avatarColor: string;
 }
 
-/** Real team members, switchable by admins (spec §13). Non-clickable for viewers without switch permission. */
+/** Real team members, switchable by admins (spec §11) — switching sets a persistent cookie so "Viewing: X" survives navigation to any module, not just Home. */
 export function TeamCard({ members, canSwitch, viewedUserId }: { members: TeamMember[]; canSwitch: boolean; viewedUserId: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  function switchTo(id: string) {
+    startTransition(async () => {
+      await setViewingUser(id);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="rounded-2xl border border-[#eeeeee] bg-white p-5">
       <div className="flex items-center justify-between">
@@ -43,9 +57,9 @@ export function TeamCard({ members, canSwitch, viewedUserId }: { members: TeamMe
 
           if (!canSwitch || isActive) return <div key={member.id}>{row}</div>;
           return (
-            <Link key={member.id} href={`/?user=${member.id}`} className="hover:bg-[#f9f9f9]">
+            <button key={member.id} type="button" disabled={pending} onClick={() => switchTo(member.id)} className="text-left hover:bg-[#f9f9f9]">
               {row}
-            </Link>
+            </button>
           );
         })}
       </div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentProfile } from "@/lib/dal";
+import { getCurrentProfile, getViewedProfile } from "@/lib/dal";
 import { canAccessCommunication } from "@/lib/permissions";
 import { getProfiles } from "@/lib/queries";
 import { getGmailConnectionStatus } from "@/lib/gmail/status";
@@ -28,13 +28,14 @@ export default async function CommunicationPage({
   const params = await searchParams;
   const profile = await getCurrentProfile();
   if (!(await canAccessCommunication(profile))) redirect("/");
+  const viewedProfile = await getViewedProfile();
 
   const category = typeof params.category === "string" ? params.category : undefined;
   const statusParam = typeof params.status === "string" ? (params.status as CaseStatus) : undefined;
   const status = statusParam && ALL_STATUSES.includes(statusParam) ? statusParam : undefined;
   const search = typeof params.q === "string" ? params.q : undefined;
   const scope = params.scope === "all" ? "all" : "mine";
-  const ownerId = scope === "mine" ? profile.id : undefined;
+  const ownerId = scope === "mine" ? viewedProfile.id : undefined;
 
   const [threads, categoryCounts, quickCounts, stats, profiles, gmailStatus] = await Promise.all([
     getEmailThreads({ category, status, search, ownerId, activeOnly: !status }),

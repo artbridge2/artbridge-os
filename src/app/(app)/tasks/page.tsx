@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LayoutGrid, List } from "lucide-react";
-import { getCurrentProfile } from "@/lib/dal";
+import { getCurrentProfile, getViewedProfile } from "@/lib/dal";
 import { getAreas, getProfiles, getTasks } from "@/lib/queries";
 import { TaskRow } from "@/components/tasks/task-row";
 import { TaskBoard } from "@/components/tasks/task-board";
@@ -17,6 +17,7 @@ export default async function TasksPage({
 }) {
   const params = await searchParams;
   const profile = await getCurrentProfile();
+  const viewedProfile = await getViewedProfile();
   const isCurator = profile.role === "kurator";
 
   const viewParam = typeof params.view === "string" ? params.view : "mine";
@@ -33,7 +34,7 @@ export default async function TasksPage({
   // "Completed" tab (which filters everything else out) doesn't apply there.
   const [tasks, profiles, areas] = await Promise.all([
     getTasks({
-      ownerId: view === "mine" ? profile.id : filterOwner,
+      ownerId: view === "mine" ? viewedProfile.id : filterOwner,
       areaId,
       priority,
       search,

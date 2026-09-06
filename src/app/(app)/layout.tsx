@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { getCurrentProfile } from "@/lib/dal";
+import { getCurrentProfile, getViewedProfile } from "@/lib/dal";
 import { getCommunicationCategoryCounts } from "@/lib/queries-inbox";
 import { getNotifications } from "@/lib/queries-notifications";
 import { getTasks } from "@/lib/queries";
@@ -12,6 +12,9 @@ import type { CampaignStatus } from "@/lib/types";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const profile = await getCurrentProfile();
+  // Sidebar/topbar badge counts follow the "Viewing: X" context (spec §11)
+  // when one is active — permissions below always stay the real viewer's.
+  const viewedProfile = await getViewedProfile();
   const capabilities = await getEffectiveCapabilities(profile);
   const canSeeCommunication =
     capabilities.communications_customer ||
@@ -21,10 +24,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     capabilities.communications_other;
 
   const [communicationCounts, notifications, myTasks, artistAttentionItems, campaignStatusCounts] = await Promise.all([
-    canSeeCommunication ? getCommunicationCategoryCounts(profile.id) : Promise.resolve(undefined),
+    canSeeCommunication ? getCommunicationCategoryCounts(viewedProfile.id) : Promise.resolve(undefined),
     getNotifications(profile.id),
-    getTasks({ ownerId: profile.id, excludeDone: true }),
-    capabilities.artists ? getArtistAttentionItems(profile.id) : Promise.resolve([]),
+    getTasks({ ownerId: viewedProfile.id, excludeDone: true }),
+    capabilities.artists ? getArtistAttentionItems(viewedProfile.id) : Promise.resolve([]),
     capabilities.marketing ? getCampaignStatusCounts() : Promise.resolve({} as Partial<Record<CampaignStatus, number>>),
   ]);
 
@@ -43,7 +46,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         activeCampaignCount={campaignStatusCounts.active ?? 0}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar profile={profile} notifications={notifications} canSeeSettings={capabilities.settings_view} />
+        <Topbar profile={profile} viewedProfile={viewedProfile} notifications={notifications} canSeeSettings={capabilities.settings_view} />
         <main className="flex-1 px-8 pb-10">{children}</main>
       </div>
     </div>

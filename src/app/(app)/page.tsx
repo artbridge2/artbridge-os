@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { MessageCircle, CheckSquare, User, Megaphone, X } from "lucide-react";
-import { getCurrentProfile } from "@/lib/dal";
+import { MessageCircle, CheckSquare, User, Megaphone } from "lucide-react";
+import { getCurrentProfile, getViewedProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { getAttentionItems, getAttentionItemsUncapped, getHomeStats, type AttentionItem } from "@/lib/attention";
 import { getCalendarConnectionStatus, getUpcomingEvents } from "@/lib/google/calendar";
@@ -50,20 +49,12 @@ function greeting(): string {
   return "Good evening";
 }
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
+export default async function HomePage() {
   const viewer = await getCurrentProfile();
   const canSwitch = viewer.role !== "kurator";
 
   const profiles = await getProfiles();
-  const requestedUserId = typeof params.user === "string" ? params.user : undefined;
-  const requestedProfile = canSwitch ? profiles.find((p) => p.id === requestedUserId) : undefined;
-  const viewedProfile: Profile = requestedProfile ?? viewer;
-  const isViewingOther = viewedProfile.id !== viewer.id;
+  const viewedProfile: Profile = await getViewedProfile();
 
   const [attentionItems, stats, calendarStatus] = await Promise.all([
     getAttentionItems(viewedProfile.id),
@@ -112,16 +103,6 @@ export default async function HomePage({
 
   return (
     <div className="pt-6">
-      {isViewingOther && (
-        <div className="mb-4 flex items-center justify-between rounded-xl bg-[#12181f] px-4 py-2.5 text-white">
-          <p className="text-[13.5px] font-medium">Viewing: {viewedProfile.full_name}</p>
-          <Link href="/" className="flex items-center gap-1 text-[13px] text-[#c7c9cc] hover:text-white">
-            <X className="size-3.5" />
-            Back to my Home
-          </Link>
-        </div>
-      )}
-
       <div className="grid grid-cols-[1fr_318px] gap-6">
         <div className="min-w-0 space-y-6">
           <div>
