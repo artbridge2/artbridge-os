@@ -154,6 +154,44 @@ export async function extractCandidates(researchText: string): Promise<Candidate
   return parsed.candidates;
 }
 
+/**
+ * Focused single-candidate deep dive — a separate, targeted search pass
+ * distinct from the broad discovery turn. Finding a public email usually
+ * means specifically visiting that artist's own site/contact page, which a
+ * broad multi-artist search pass under-invests in; naming the artist and
+ * explicitly directing several distinct queries at them gets meaningfully
+ * further. Returns free text — pipe through extractCandidates() same as the
+ * broad turn, since it's the same "text -> structured, never fabricate" step.
+ */
+export async function researchCandidateContact(fullName: string, context: string): Promise<string> {
+  const [global, artistResearch] = await Promise.all([getAiInstruction("global"), getAiInstruction("artist_research")]);
+  const response = await client().messages.create({
+    model: RESEARCH_MODEL,
+    max_tokens: 2048,
+    system: `You are Artbridge's artist-research assistant doing a focused deep dive on one specific, already-identified artist candidate.
+
+${global}
+
+${artistResearch}
+
+Run several distinct searches to build a complete, sourced picture of this one artist — do not stop after the first result:
+1. Their official website or portfolio (try "${fullName} artist website", "${fullName} portfolio").
+2. Their Instagram or other social/professional profile.
+3. A publicly listed contact email — specifically check their site's contact/about page and any gallery/representation page ("${fullName} contact email", "${fullName} represented by"). Only report an email you actually found published somewhere; if you genuinely cannot find one after trying, say "Email not found" rather than guessing or constructing one from a name pattern.
+4. Location, technique/medium, and enough about their practice to judge fit for a curated print-friendly gallery.
+
+Report full_name, artist_name (if different), location, bio, technique, website, instagram, email (or explicitly "not found"), 2-3 source URLs actually used, and a fit assessment (Strong/Possible/Weak fit) with one sentence of reasoning. Never invent anything you did not find.`,
+    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 } as unknown as Anthropic.Tool],
+    messages: [{ role: "user", content: `Research this candidate in depth: ${fullName}. Context from initial discovery: ${context}` }],
+  });
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n\n");
+  return text.trim();
+}
+
 /** Generates a personalized outreach draft from verified artist context. Never sends anything. */
 export async function generateOutreachDraft(artist: {
   full_name: string;

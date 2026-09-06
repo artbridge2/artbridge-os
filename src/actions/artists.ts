@@ -7,9 +7,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
 import { getProfiles } from "@/lib/queries";
 import { sendNewMessage, sendReply as sendGmailReply } from "@/lib/gmail/client";
-import { extractCandidates, generateOutreachDraft, runResearchTurn } from "@/lib/ai/artist-research";
+import { extractCandidates, generateOutreachDraft, researchCandidateContact, runResearchTurn, type CandidateExtraction } from "@/lib/ai/artist-research";
 import { findPossibleDuplicates, type DuplicateCandidateInput } from "@/lib/artists/duplicate-detection";
 import type { ArtistLink, ArtistStatus, FitAssessment } from "@/lib/types";
+
+const MAX_DEEP_DIVE_CANDIDATES = 5;
 
 function revalidateArtistViews() {
   revalidatePath("/", "layout");
@@ -294,6 +296,106 @@ export async function reviewApplication(
 // Research (spec §8-11)
 // ---------------------------------------------------------------------------
 
+function toResultRow(sessionId: string, c: CandidateExtraction) {
+  return {
+    session_id: sessionId,
+    full_name: c.full_name,
+    artist_name: c.artist_name,
+    location: c.location,
+    bio: c.bio,
+    technique: c.technique,
+    website: c.website,
+    instagram: c.instagram,
+    email: c.email,
+    source_links: c.source_links.map((url) => ({ label: url, url })),
+    fit_assessment: c.fit_assessment,
+    fit_rationale: c.fit_rationale,
+  };
+}
+
+/** Deep-dive values win when present; otherwise fall back to the broad discovery pass. Never drops a field the broad pass already found. */
+function mergeDeepDive(shallow: CandidateExtraction, deep: CandidateExtraction | undefined): CandidateExtraction {
+  if (!deep) return shallow;
+  return {
+    full_name: deep.full_name || shallow.full_name,
+    artist_name: deep.artist_name ?? shallow.artist_name,
+    location: deep.location ?? shallow.location,
+    bio: deep.bio ?? shallow.bio,
+    technique: deep.technique ?? shallow.technique,
+    website: deep.website ?? shallow.website,
+    instagram: deep.instagram ?? shallow.instagram,
+    email: deep.email ?? shallow.email,
+    source_links: [...new Set([...shallow.source_links, ...deep.source_links])],
+    fit_assessment: deep.fit_assessment ?? shallow.fit_assessment,
+    fit_rationale: deep.fit_rationale ?? shallow.fit_rationale,
+  };
+}
+
+/**
+ * One full discovery turn: broad web-search pass -> extract candidate names
+ * -> drop ones already known (real artists DB or already surfaced in this
+ * session) -> targeted per-candidate deep dive (parallel, bounded) for
+ * contact info specifically -> persist. This is the actual multi-step
+ * workflow — not a single completion hoping the model does all of it itself.
+ */
+async function runDiscoveryTurn(sessionId: string, history: { role: "user" | "assistant"; content: string }[], message: string) {
+  const supabase = await createClient();
+
+  const reply = await runResearchTurn({ history, message });
+  await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "assistant", content: reply });
+
+  const shallowCandidates = await extractCandidates(reply).catch(() => []);
+  if (shallowCandidates.length === 0) return;
+
+  const { data: existingResults } = await supabase.from("artist_research_results").select("full_name").eq("session_id", sessionId);
+  const existingNames = new Set((existingResults ?? []).map((r) => r.full_name.toLowerCase()));
+
+  const newCandidates: CandidateExtraction[] = [];
+  const alreadyKnown: string[] = [];
+
+  for (const c of shallowCandidates) {
+    if (existingNames.has(c.full_name.toLowerCase())) {
+      alreadyKnown.push(c.full_name);
+      continue;
+    }
+    const duplicates = await findPossibleDuplicates({ fullName: c.full_name, email: c.email, instagram: c.instagram, website: c.website });
+    if (duplicates.length > 0) {
+      alreadyKnown.push(c.full_name);
+      continue;
+    }
+    newCandidates.push(c);
+  }
+
+  const toDeepDive = newCandidates.slice(0, MAX_DEEP_DIVE_CANDIDATES);
+  const skippedForBudget = newCandidates.slice(MAX_DEEP_DIVE_CANDIDATES);
+
+  const deepDived = await Promise.all(
+    toDeepDive.map(async (candidate) => {
+      try {
+        const text = await researchCandidateContact(candidate.full_name, candidate.bio ?? candidate.fit_rationale ?? "");
+        const [deep] = await extractCandidates(text);
+        return mergeDeepDive(candidate, deep);
+      } catch (err) {
+        console.error("[artists] deep-dive research failed for", candidate.full_name, err);
+        return candidate;
+      }
+    })
+  );
+
+  const finalCandidates = [...deepDived, ...skippedForBudget];
+  if (finalCandidates.length > 0) {
+    await supabase.from("artist_research_results").insert(finalCandidates.map((c) => toResultRow(sessionId, c)));
+  }
+
+  const summaryParts: string[] = [];
+  if (deepDived.length > 0) summaryParts.push(`Researched ${deepDived.length} new candidate${deepDived.length === 1 ? "" : "s"} in depth, including contact info where publicly available.`);
+  if (skippedForBudget.length > 0) summaryParts.push(`Found ${skippedForBudget.length} more candidate(s) but didn't deep-dive them yet this turn — ask to continue and I'll research them too.`);
+  if (alreadyKnown.length > 0) summaryParts.push(`Already known, not re-added: ${alreadyKnown.join(", ")}.`);
+  if (summaryParts.length > 0) {
+    await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "assistant", content: summaryParts.join(" ") });
+  }
+}
+
 export async function startResearchSession(brief: string): Promise<string> {
   if (!brief.trim()) throw new Error("A research brief is required.");
   const supabase = await createClient();
@@ -309,27 +411,7 @@ export async function startResearchSession(brief: string): Promise<string> {
   await supabase.from("artist_research_messages").insert({ session_id: session.id, role: "user", content: brief });
 
   try {
-    const reply = await runResearchTurn({ history: [], message: brief });
-    await supabase.from("artist_research_messages").insert({ session_id: session.id, role: "assistant", content: reply });
-    const candidates = await extractCandidates(reply).catch(() => []);
-    if (candidates.length > 0) {
-      await supabase.from("artist_research_results").insert(
-        candidates.map((c) => ({
-          session_id: session.id,
-          full_name: c.full_name,
-          artist_name: c.artist_name,
-          location: c.location,
-          bio: c.bio,
-          technique: c.technique,
-          website: c.website,
-          instagram: c.instagram,
-          email: c.email,
-          source_links: c.source_links.map((url) => ({ label: url, url })),
-          fit_assessment: c.fit_assessment,
-          fit_rationale: c.fit_rationale,
-        }))
-      );
-    }
+    await runDiscoveryTurn(session.id, [], brief);
   } catch (err) {
     console.error("[artists] research turn failed", err);
   }
@@ -351,27 +433,7 @@ export async function continueResearchSession(sessionId: string, message: string
   await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "user", content: message });
 
   try {
-    const reply = await runResearchTurn({ history: (history ?? []) as { role: "user" | "assistant"; content: string }[], message });
-    await supabase.from("artist_research_messages").insert({ session_id: sessionId, role: "assistant", content: reply });
-    const candidates = await extractCandidates(reply).catch(() => []);
-    if (candidates.length > 0) {
-      await supabase.from("artist_research_results").insert(
-        candidates.map((c) => ({
-          session_id: sessionId,
-          full_name: c.full_name,
-          artist_name: c.artist_name,
-          location: c.location,
-          bio: c.bio,
-          technique: c.technique,
-          website: c.website,
-          instagram: c.instagram,
-          email: c.email,
-          source_links: c.source_links.map((url) => ({ label: url, url })),
-          fit_assessment: c.fit_assessment,
-          fit_rationale: c.fit_rationale,
-        }))
-      );
-    }
+    await runDiscoveryTurn(sessionId, (history ?? []) as { role: "user" | "assistant"; content: string }[], message);
   } catch (err) {
     console.error("[artists] research turn failed", err);
     throw new Error("RESEARCH_PROVIDER_FAILED");
@@ -381,11 +443,47 @@ export async function continueResearchSession(sessionId: string, message: string
   revalidatePath(`/artists/research/${sessionId}`);
 }
 
+/** Re-researches one existing result in place (not a new discovery turn) — the whole point is a deeper, targeted pass on a candidate already found. */
 export async function researchDeeper(sessionId: string, resultId: string) {
   const supabase = await createClient();
-  const { data: result } = await supabase.from("artist_research_results").select("full_name").eq("id", resultId).single();
+  const { data: result } = await supabase.from("artist_research_results").select("*").eq("id", resultId).single();
   if (!result) return;
-  await continueResearchSession(sessionId, `Research "${result.full_name}" more deeply — try harder to find a portfolio, verified contact email and more background.`);
+
+  try {
+    const text = await researchCandidateContact(result.full_name, result.bio ?? result.fit_rationale ?? "");
+    const [deep] = await extractCandidates(text);
+
+    if (deep) {
+      const existingLinks = ((result.source_links as ArtistLink[] | null) ?? []).map((l) => l.url);
+      const mergedLinks = [...new Set([...existingLinks, ...deep.source_links])];
+      await supabase
+        .from("artist_research_results")
+        .update({
+          artist_name: deep.artist_name ?? result.artist_name,
+          location: deep.location ?? result.location,
+          bio: deep.bio ?? result.bio,
+          technique: deep.technique ?? result.technique,
+          website: deep.website ?? result.website,
+          instagram: deep.instagram ?? result.instagram,
+          email: deep.email ?? result.email,
+          source_links: mergedLinks.map((url) => ({ label: url, url })),
+          fit_assessment: deep.fit_assessment ?? result.fit_assessment,
+          fit_rationale: deep.fit_rationale ?? result.fit_rationale,
+        })
+        .eq("id", resultId);
+    }
+
+    await supabase.from("artist_research_messages").insert({
+      session_id: sessionId,
+      role: "assistant",
+      content: deep
+        ? `Did a deeper pass on ${result.full_name} — updated with anything new I found.`
+        : `Searched further for ${result.full_name} but didn't find additional verified details.`,
+    });
+  } catch (err) {
+    console.error("[artists] researchDeeper failed", err);
+  }
+  revalidatePath(`/artists/research/${sessionId}`);
 }
 
 export async function dismissResult(resultId: string) {

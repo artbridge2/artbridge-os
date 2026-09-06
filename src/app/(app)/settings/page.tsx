@@ -9,6 +9,7 @@ import { signOut } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { AddAreaForm } from "@/components/add-area-form";
 import { GmailSyncButton } from "@/components/gmail-sync-button";
+import { GmailBackfillButton } from "@/components/gmail-backfill-button";
 import { IntegrationCard } from "@/components/settings/integration-card";
 import { SettingsTabs } from "@/components/settings/settings-tabs";
 import { ROLE_LABELS } from "@/lib/types";
@@ -75,8 +76,9 @@ export default async function SettingsPage({
 
         <IntegrationCard integration={google} canManage={canManageIntegrations} disconnectAction={disconnectGmail} />
         {google.status === "connected" && canManageIntegrations && (
-          <div className="-mt-2 pl-4">
+          <div className="-mt-2 flex flex-col gap-2 pl-4">
             <GmailSyncButton />
+            <GmailBackfillButton />
           </div>
         )}
 

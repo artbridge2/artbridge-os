@@ -7,11 +7,49 @@ import {
   listRecentThreadIds,
   type FetchedThread,
 } from "./client";
-import { classifyThread, CLASSIFICATION_VERSION } from "@/lib/ai/provider";
+import { classifyThread, CLASSIFICATION_VERSION, type ClassificationResult } from "@/lib/ai/provider";
 import { decideIngestion } from "./ingestion";
 import type { CaseStatus } from "@/lib/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
+
+/** Shared by the live sync path and the backlog backfill — one place that writes a classification result to a thread. */
+async function applyClassification(
+  admin: Admin,
+  threadId: string,
+  newestMessageId: string | null,
+  existingOwnerId: string | null,
+  result: ClassificationResult
+): Promise<void> {
+  if (!result.should_create_case) {
+    await admin
+      .from("email_threads")
+      .update({ suppressed: true, classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
+      .eq("id", threadId);
+    return;
+  }
+
+  await admin
+    .from("email_threads")
+    .update({
+      category: result.category,
+      issue_type: result.issue_type,
+      // Never overwrite a manual reassignment with a low-confidence guess.
+      owner_id: existingOwnerId ?? result.owner,
+      priority: result.priority,
+      status: result.status,
+      ai_summary: result.summary,
+      ai_confidence: result.confidence,
+      suggested_next_action: result.suggested_next_action,
+      follow_up_at: result.suggested_follow_up_date,
+      shopify_customer_id: result.shopify_customer_id,
+      shopify_order_id: result.shopify_order_id,
+      shopify_match_confidence: result.shopify_match_confidence,
+      classification_version: CLASSIFICATION_VERSION,
+      last_classified_message_id: newestMessageId,
+    })
+    .eq("id", threadId);
+}
 
 const MY_EMAIL_FALLBACK = "info@artbridge.hu";
 
@@ -138,31 +176,7 @@ async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void>
       })),
     });
 
-    if (!result.should_create_case) {
-      await admin
-        .from("email_threads")
-        .update({ suppressed: true, classification_version: CLASSIFICATION_VERSION, last_classified_message_id: newestMessageId })
-        .eq("id", thread.id);
-      return;
-    }
-
-    await admin
-      .from("email_threads")
-      .update({
-        category: result.category,
-        issue_type: result.issue_type,
-        // Never overwrite a manual reassignment with a low-confidence guess.
-        owner_id: existing?.owner_id ?? result.owner,
-        priority: result.priority,
-        status: result.status,
-        ai_summary: result.summary,
-        ai_confidence: result.confidence,
-        suggested_next_action: result.suggested_next_action,
-        follow_up_at: result.suggested_follow_up_date,
-        classification_version: CLASSIFICATION_VERSION,
-        last_classified_message_id: newestMessageId,
-      })
-      .eq("id", thread.id);
+    await applyClassification(admin, thread.id, newestMessageId, existing?.owner_id ?? null, result);
   } catch (err) {
     console.error("[sync] classification failed for", fetched.gmailThreadId, err);
   }
@@ -290,7 +304,79 @@ export async function runIncrementalSync(): Promise<SyncResult> {
   const historyId = await getCurrentHistoryId();
   await admin.from("gmail_integration").update({ last_synced_at: new Date().toISOString(), last_history_id: historyId }).eq("id", integration.id);
 
-  return { threadsProcessed: processed, errors };
+  const backfill = await classifyBacklogBatch(15);
+
+  return { threadsProcessed: processed + backfill.processed, errors: errors + backfill.errors };
+}
+
+export interface BackfillResult {
+  processed: number;
+  errors: number;
+  remaining: number;
+}
+
+/**
+ * Classifies threads that were synced but never successfully classified —
+ * e.g. because a prior sync run hit Vercel's serverless time limit partway
+ * through a large backlog. Reads messages already stored in our own DB, so
+ * it needs no Gmail API round trip per thread and can make real progress
+ * within one invocation's time budget. Safe to call repeatedly — idempotent
+ * via the same classification_version/last_classified_message_id guard used
+ * everywhere else, and naturally becomes a no-op once caught up.
+ */
+export async function classifyBacklogBatch(limit = 15): Promise<BackfillResult> {
+  const admin = createAdminClient();
+
+  const { data: threads } = await admin
+    .from("email_threads")
+    .select("id, subject, participants, owner_id")
+    .eq("suppressed", false)
+    .neq("classification_version", CLASSIFICATION_VERSION)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  let processed = 0;
+  let errors = 0;
+
+  for (const thread of threads ?? []) {
+    try {
+      const { data: messages } = await admin
+        .from("email_messages")
+        .select("gmail_message_id, sender, sanitized_body, sent_at, is_inbound")
+        .eq("thread_id", thread.id)
+        .order("sent_at", { ascending: true });
+
+      if (!messages || messages.length === 0) continue;
+
+      const participants = ((thread.participants as { email: string }[] | null) ?? []).map((p) => p.email);
+      const newestMessageId = messages.at(-1)?.gmail_message_id ?? null;
+
+      const result = await classifyThread({
+        subject: thread.subject,
+        participants,
+        messages: messages.map((m) => ({
+          sender: m.sender,
+          body: m.sanitized_body ?? "",
+          sentAt: m.sent_at,
+          isInbound: m.is_inbound,
+        })),
+      });
+
+      await applyClassification(admin, thread.id, newestMessageId, thread.owner_id, result);
+      processed++;
+    } catch (err) {
+      console.error("[sync] backfill classification failed for thread", thread.id, err);
+      errors++;
+    }
+  }
+
+  const { count: remaining } = await admin
+    .from("email_threads")
+    .select("id", { count: "exact", head: true })
+    .eq("suppressed", false)
+    .neq("classification_version", CLASSIFICATION_VERSION);
+
+  return { processed, errors, remaining: remaining ?? 0 };
 }
 
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */

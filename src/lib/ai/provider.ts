@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { getAiInstruction } from "./instructions";
+import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 
 /**
  * Thin, provider-swappable AI layer. Everything the rest of the app needs
@@ -31,6 +32,10 @@ const ClassificationSchema = z.object({
   suggested_next_action: z.string().nullable(),
   suggested_follow_up_date: z.string().nullable(),
   confidence: z.number().min(0).max(1),
+  /** Only ever set from a real look_up_shopify_customer tool result — never guessed. */
+  shopify_customer_id: z.string().nullable(),
+  shopify_order_id: z.string().nullable(),
+  shopify_match_confidence: z.enum(["confirmed"]).nullable(),
 });
 
 export type ClassificationResult = z.infer<typeof ClassificationSchema>;
@@ -91,71 +96,139 @@ issue_type: for category "customer", pick one of damaged_product, wrong_product,
 
 status: needs_reply (external party is waiting on us), needs_review (something needs a human decision but isn't simply "reply"), in_progress (actively being worked, not just waiting for a reply), or waiting (we're waiting on an external party or a follow-up date — only set suggested_follow_up_date in that case).
 
-Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Be concise: 1-2 sentences. When genuinely unsure about the owner, return owner: null rather than guessing.`;
+Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Be concise: 1-2 sentences. When genuinely unsure about the owner, return owner: null rather than guessing.
+
+Shopify matching: if this looks like a customer order/shipping/product/return/payment question and you can identify the customer's own email address (not info@artbridge.hu), call look_up_shopify_customer with that email BEFORE producing your final classification. Use its result to set shopify_customer_id, and shopify_order_id if the thread clearly refers to one specific order from the returned list (match by order number/name mentioned in the email, or the single most recent order only if there is exactly one and the thread doesn't distinguish). Set shopify_match_confidence to "confirmed" only when the tool actually returned a match; otherwise leave all three null. Never invent a Shopify ID without calling the tool first, and never call it more than once per thread.`;
 }
 
-/** Classifies a thread. Throws if the AI provider call fails — callers decide how to handle that (e.g. leave status as-is and retry later). */
+const LOOKUP_TOOL: Anthropic.Tool = {
+  name: "look_up_shopify_customer",
+  description: "Looks up a real Shopify customer by exact email address, returning their id, name, order count, and up to 3 recent orders (id, order number, date, fulfillment status). Returns not_found if no customer has that email, or not_connected if Shopify isn't connected.",
+  input_schema: {
+    type: "object",
+    properties: { email: { type: "string", description: "The customer's own email address, not info@artbridge.hu" } },
+    required: ["email"],
+  },
+};
+
+const CLASSIFY_TOOL: Anthropic.Tool = {
+  name: "classify_email_thread",
+  description: "Return the classification for this Artbridge inbox email thread.",
+  input_schema: {
+    type: "object",
+    properties: {
+      should_create_case: { type: "boolean" },
+      category: { type: "string", enum: CATEGORIES as unknown as string[] },
+      issue_type: { type: ["string", "null"] },
+      status: { type: "string", enum: STATUSES as unknown as string[] },
+      priority: { type: "string", enum: PRIORITIES as unknown as string[] },
+      owner: {
+        type: ["string", "null"],
+        enum: [...OWNERS, null] as unknown as string[],
+      },
+      summary: { type: "string" },
+      suggested_next_action: { type: ["string", "null"] },
+      suggested_follow_up_date: {
+        type: ["string", "null"],
+        description: "YYYY-MM-DD, only when status is 'waiting'",
+      },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+      shopify_customer_id: { type: ["string", "null"], description: "Only from a real look_up_shopify_customer result" },
+      shopify_order_id: { type: ["string", "null"], description: "Only from a real look_up_shopify_customer result" },
+      shopify_match_confidence: { type: ["string", "null"], enum: ["confirmed", null] },
+    },
+    required: [
+      "should_create_case",
+      "category",
+      "issue_type",
+      "status",
+      "priority",
+      "owner",
+      "summary",
+      "suggested_next_action",
+      "suggested_follow_up_date",
+      "confidence",
+      "shopify_customer_id",
+      "shopify_order_id",
+      "shopify_match_confidence",
+    ],
+  },
+};
+
+/** Executes the real Shopify lookup and returns a compact, model-readable result — never fabricated, and explicit about not_connected/not_found so the model doesn't treat silence as a match. */
+async function runShopifyLookupTool(email: string): Promise<string> {
+  try {
+    const match = await findShopifyCustomerByEmail(email);
+    if (!match) return JSON.stringify({ found: false });
+    return JSON.stringify({
+      found: true,
+      customer_id: match.id,
+      name: match.name,
+      orders_count: match.ordersCount,
+      recent_orders: match.recentOrders.map((o) => ({ order_id: o.id, name: o.name, created_at: o.createdAt, status: o.fulfillmentStatus })),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "SHOPIFY_NOT_CONNECTED") return JSON.stringify({ connected: false });
+    console.error("[ai] shopify lookup tool failed", err);
+    return JSON.stringify({ found: false, error: "lookup_failed" });
+  }
+}
+
+/**
+ * Classifies a thread with real tool access to Shopify customer/order data —
+ * a short, bounded (at most one lookup) tool-use loop, not a single blind
+ * completion. Throws if the AI provider call fails — callers decide how to
+ * handle that (e.g. leave status as-is and retry later).
+ */
 export async function classifyThread(thread: ThreadForAI): Promise<ClassificationResult> {
-  const message = await client().messages.create({
+  const system = await buildClassifySystemPrompt();
+  const tools = [LOOKUP_TOOL, CLASSIFY_TOOL];
+  const messages: Anthropic.MessageParam[] = [
+    {
+      role: "user",
+      content: `Subject: ${thread.subject ?? "(no subject)"}\nParticipants: ${thread.participants.join(
+        ", "
+      )}\n\n${conversationText(thread)}`,
+    },
+  ];
+
+  let response = await client().messages.create({
     model: CLASSIFY_MODEL,
     max_tokens: 1024,
-    system: await buildClassifySystemPrompt(),
-    tools: [
-      {
-        name: "classify_email_thread",
-        description: "Return the classification for this Artbridge inbox email thread.",
-        input_schema: {
-          type: "object",
-          properties: {
-            should_create_case: { type: "boolean" },
-            category: { type: "string", enum: CATEGORIES as unknown as string[] },
-            issue_type: { type: ["string", "null"] },
-            status: { type: "string", enum: STATUSES as unknown as string[] },
-            priority: { type: "string", enum: PRIORITIES as unknown as string[] },
-            owner: {
-              type: ["string", "null"],
-              enum: [...OWNERS, null] as unknown as string[],
-            },
-            summary: { type: "string" },
-            suggested_next_action: { type: ["string", "null"] },
-            suggested_follow_up_date: {
-              type: ["string", "null"],
-              description: "YYYY-MM-DD, only when status is 'waiting'",
-            },
-            confidence: { type: "number", minimum: 0, maximum: 1 },
-          },
-          required: [
-            "should_create_case",
-            "category",
-            "issue_type",
-            "status",
-            "priority",
-            "owner",
-            "summary",
-            "suggested_next_action",
-            "suggested_follow_up_date",
-            "confidence",
-          ],
-        },
-      },
-    ],
-    tool_choice: { type: "tool", name: "classify_email_thread" },
-    messages: [
-      {
-        role: "user",
-        content: `Subject: ${thread.subject ?? "(no subject)"}\nParticipants: ${thread.participants.join(
-          ", "
-        )}\n\n${conversationText(thread)}`,
-      },
-    ],
+    system,
+    tools,
+    tool_choice: { type: "auto" },
+    messages,
   });
 
-  const toolUse = message.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-  if (!toolUse) throw new Error("AI did not return a classification tool call");
+  let toolUse = response.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "look_up_shopify_customer");
 
-  return ClassificationSchema.parse(toolUse.input);
+  if (toolUse) {
+    const { email } = toolUse.input as { email: string };
+    const toolResult = await runShopifyLookupTool(email);
+
+    messages.push({ role: "assistant", content: response.content });
+    messages.push({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: toolUse.id, content: toolResult }],
+    });
+
+    response = await client().messages.create({
+      model: CLASSIFY_MODEL,
+      max_tokens: 1024,
+      system,
+      tools,
+      tool_choice: { type: "tool", name: "classify_email_thread" },
+      messages,
+    });
+  }
+
+  const classification = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "classify_email_thread"
+  );
+  if (!classification) throw new Error("AI did not return a classification tool call");
+
+  return ClassificationSchema.parse(classification.input);
 }
 
 async function buildDraftSystemPrompt(): Promise<string> {
