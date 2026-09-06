@@ -242,7 +242,7 @@ export interface SyncResult {
 // EVER being set (the update ran after the loop, so a timeout meant it
 // never ran at all), permanently trapping every sync in expensive
 // full-rescan mode instead of graduating to cheap incremental syncs.
-const INITIAL_SYNC_BOUND = 60;
+const INITIAL_SYNC_BOUND = 40;
 
 /** One-time backfill for the last `days` days. Bounded and resumable — safe to re-run, upserts by gmail_thread_id. */
 export async function runInitialSync(days = 30): Promise<SyncResult> {
@@ -334,7 +334,7 @@ export async function runIncrementalSync(): Promise<SyncResult> {
   const historyId = await getCurrentHistoryId();
   await admin.from("gmail_integration").update({ last_synced_at: new Date().toISOString(), last_history_id: historyId }).eq("id", integration.id);
 
-  const backfill = await classifyBacklogBatch(15);
+  const backfill = await classifyBacklogBatch(8);
 
   return { threadsProcessed: processed + backfill.processed, errors: errors + backfill.errors };
 }

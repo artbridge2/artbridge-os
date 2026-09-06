@@ -98,7 +98,7 @@ status: needs_reply (external party is waiting on us), needs_review (something n
 
 Write the summary in the same language as the email (Hungarian email -> Hungarian summary, English -> English). Be concise: 1-2 sentences. When genuinely unsure about the owner, return owner: null rather than guessing.
 
-Shopify matching: if this looks like a customer order/shipping/product/return/payment question and you can identify the customer's own email address (not info@artbridge.hu), call look_up_shopify_customer with that email BEFORE producing your final classification. Use its result to set shopify_customer_id, and shopify_order_id if the thread clearly refers to one specific order from the returned list (match by order number/name mentioned in the email, or the single most recent order only if there is exactly one and the thread doesn't distinguish). Set shopify_match_confidence to "confirmed" only when the tool actually returned a match; otherwise leave all three null. Never invent a Shopify ID without calling the tool first, and never call it more than once per thread.`;
+Shopify matching: call look_up_shopify_customer ONLY when the thread is plausibly a real end-customer (not a supplier, courier, or automated system) asking about their own order/shipping/product/return/payment, AND you can identify that specific customer's own email address (never info@artbridge.hu, never a courier/supplier/no-reply address like GLS, DHL, a webshop platform, etc.). Most threads do not qualify — when in doubt, skip the lookup and leave the shopify fields null. If you do call it, call it exactly once, WAIT for its actual result, and only THEN produce classify_email_thread in a separate response — never call both tools in the same turn, since that means you're guessing the outcome rather than using it. Use the result to set shopify_customer_id, and shopify_order_id only if the thread clearly refers to one specific order from the returned list. Set shopify_match_confidence to "confirmed" only when the tool actually returned a match; otherwise leave all three null. Never invent a Shopify ID without a real tool result.`;
 }
 
 const LOOKUP_TOOL: Anthropic.Tool = {
@@ -201,16 +201,22 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
     messages,
   });
 
-  let toolUse = response.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "look_up_shopify_customer");
+  const lookupUse = response.content.find((block): block is Anthropic.ToolUseBlock => block.type === "tool_use" && block.name === "look_up_shopify_customer");
+  const classifyInSameTurn = response.content.some((block) => block.type === "tool_use" && block.name === "classify_email_thread");
 
-  if (toolUse) {
-    const { email } = toolUse.input as { email: string };
+  // The model sometimes calls both tools in the same turn — classifying
+  // before it could have actually seen the lookup result. A real second
+  // round trip (which is what actually makes the classification Shopify-
+  // aware) only happens when the model asked for the lookup and is still
+  // waiting on it; otherwise skip the extra latency entirely.
+  if (lookupUse && !classifyInSameTurn) {
+    const { email } = lookupUse.input as { email: string };
     const toolResult = await runShopifyLookupTool(email);
 
     messages.push({ role: "assistant", content: response.content });
     messages.push({
       role: "user",
-      content: [{ type: "tool_result", tool_use_id: toolUse.id, content: toolResult }],
+      content: [{ type: "tool_result", tool_use_id: lookupUse.id, content: toolResult }],
     });
 
     response = await client().messages.create({
@@ -228,7 +234,16 @@ export async function classifyThread(thread: ThreadForAI): Promise<Classificatio
   );
   if (!classification) throw new Error("AI did not return a classification tool call");
 
-  return ClassificationSchema.parse(classification.input);
+  const parsed = ClassificationSchema.parse(classification.input);
+
+  // If this classification came from the same turn as an (unexecuted) lookup
+  // attempt, any shopify_* fields it set are a guess, not a real tool
+  // result — discard them rather than risk fabricated IDs.
+  if (lookupUse && classifyInSameTurn) {
+    return { ...parsed, shopify_customer_id: null, shopify_order_id: null, shopify_match_confidence: null };
+  }
+
+  return parsed;
 }
 
 async function buildDraftSystemPrompt(): Promise<string> {
