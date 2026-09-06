@@ -733,6 +733,94 @@ export async function classifyBacklogBatch(maxBudgetMs = 45_000): Promise<Backfi
   };
 }
 
+/**
+ * One-off reconciliation helper: (re)classifies an explicit list of Gmail
+ * thread IDs regardless of their current classification_version/suppressed
+ * state — used for the starred-thread calibration pass (Communications V2
+ * spec point 5/6), not part of any ongoing scheduled path. Skips any thread
+ * whose sender already matches the deterministic automated-sender/domain
+ * heuristics: those are known junk and shouldn't even be read in for AI
+ * review, per Ádám's explicit instruction.
+ */
+export async function classifySpecificThreads(
+  gmailThreadIds: string[]
+): Promise<{ processed: number; skippedJunk: number; skippedMissing: number; errors: number; errorSamples: string[] }> {
+  const admin = createAdminClient();
+  let processed = 0;
+  let skippedJunk = 0;
+  let skippedMissing = 0;
+  let errors = 0;
+  const errorSamples: string[] = [];
+
+  for (const gmailThreadId of gmailThreadIds) {
+    try {
+      const { data: thread } = await admin
+        .from("email_threads")
+        .select("id, subject, participants, owner_id, sender, category_source, status_source, priority_source")
+        .eq("gmail_thread_id", gmailThreadId)
+        .maybeSingle();
+
+      if (!thread) {
+        skippedMissing++;
+        continue;
+      }
+
+      const ingestion = await decideIngestion({ sender: thread.sender, subject: thread.subject });
+      if (ingestion.suppressed) {
+        skippedJunk++;
+        continue;
+      }
+
+      const { data: messages } = await admin
+        .from("email_messages")
+        .select("gmail_message_id, sender, sanitized_body, sent_at, is_inbound")
+        .eq("thread_id", thread.id)
+        .order("sent_at", { ascending: true });
+
+      if (!messages || messages.length === 0) {
+        skippedMissing++;
+        continue;
+      }
+
+      const participants = ((thread.participants as { email: string }[] | null) ?? []).map((p) => p.email);
+      const newestMessageId = messages.at(-1)?.gmail_message_id ?? null;
+
+      const threadForAI: ThreadForAI = {
+        subject: thread.subject,
+        participants,
+        messages: messages.map((m) => ({
+          sender: m.sender,
+          body: m.sanitized_body ?? "",
+          sentAt: m.sent_at,
+          isInbound: m.is_inbound,
+        })),
+      };
+      const result = await classifyThread(threadForAI, thread.id);
+
+      await applyClassification(
+        admin,
+        thread.id,
+        newestMessageId,
+        thread.owner_id,
+        result,
+        threadForAI,
+        thread.sender,
+        thread.category_source === "human",
+        thread.status_source === "human",
+        thread.priority_source === "human"
+      );
+      processed++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[sync] specific-thread classification failed for", gmailThreadId, err);
+      if (errorSamples.length < 10) errorSamples.push(`${gmailThreadId}: ${message}`);
+      errors++;
+    }
+  }
+
+  return { processed, skippedJunk, skippedMissing, errors, errorSamples };
+}
+
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */
 export async function archiveStaleResolvedCases(): Promise<number> {
   const admin = createAdminClient();
