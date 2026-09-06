@@ -56,6 +56,7 @@ export interface Task extends TaskLinkedObject {
   recurring_parent_id: string | null;
   recurring_end_date: string | null; // YYYY-MM-DD, null = no end
   skipped_at: string | null;
+  promoted_to_global: boolean;
   checklist: ChecklistItem[];
   created_by: string | null;
   created_at: string;
