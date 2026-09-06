@@ -42,6 +42,7 @@ export async function createTask(
   const title = String(formData.get("title") ?? "").trim();
   const ownerId = String(formData.get("owner_id") ?? "");
   const areaId = String(formData.get("area_id") ?? "") || null;
+  const projectId = String(formData.get("project_id") ?? "") || null;
   const priority = String(formData.get("priority") ?? "normal") as TaskPriority;
   const dueDate = String(formData.get("due_date") ?? "") || null;
   const description = String(formData.get("description") ?? "").trim() || null;
@@ -56,6 +57,7 @@ export async function createTask(
       title,
       owner_id: ownerId,
       area_id: areaId,
+      project_id: projectId,
       priority,
       due_date: dueDate,
       description,
@@ -74,7 +76,7 @@ export async function createTask(
   }
 
   revalidateTaskViews();
-  redirect("/tasks");
+  redirect(projectId ? `/projects/${projectId}` : "/tasks");
 }
 
 export async function updateTask(

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Link2 } from "lucide-react";
 import { AutosaveIndicator } from "@/components/autosave-indicator";
 import { changeDueDate, changePriority, changeStatus, deleteTask, reassignTask, stopRecurrence } from "@/actions/tasks";
+import { setTaskProject } from "@/actions/projects";
 import { PRIORITY_LABELS, ROLE_LABELS, STATUS_LABELS, type Profile, type TaskPriority, type TaskStatus, type TaskWithRelations } from "@/lib/types";
 
 function SidebarCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
@@ -20,7 +21,7 @@ function SidebarCard({ title, action, children }: { title: string; action?: Reac
   );
 }
 
-export function TaskSidebar({ task, profiles }: { task: TaskWithRelations; profiles: Profile[] }) {
+export function TaskSidebar({ task, profiles, projects }: { task: TaskWithRelations; profiles: Profile[]; projects: { id: string; name: string }[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
@@ -82,6 +83,21 @@ export function TaskSidebar({ task, profiles }: { task: TaskWithRelations; profi
                 <option key={p.id} value={p.id}>
                   {ROLE_LABELS[p.role]}
                 </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[12px] text-[#9aa0a8]">Project</label>
+            <select
+              defaultValue={task.project_id ?? ""}
+              disabled={pending}
+              onChange={(e) => run(() => setTaskProject(task.id, e.target.value || null))}
+              className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-2 text-[13px]"
+            >
+              <option value="">No project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>

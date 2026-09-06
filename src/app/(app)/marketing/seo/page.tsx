@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { ArrowRight, Search, ShoppingBag } from "lucide-react";
+import { getCurrentProfile } from "@/lib/dal";
+import { hasCapability } from "@/lib/permissions";
 import { getShopifyConnectionStatus } from "@/lib/shopify/status";
 import { runShopifyProductSeoAudit, type SeoSeverity } from "@/lib/seo/audit";
 import { SeoFindingRow } from "@/components/marketing/seo-finding-row";
+import { NotAuthorized } from "@/components/home/not-authorized";
 import { cn } from "@/lib/utils";
 
 const SEVERITIES: SeoSeverity[] = ["high", "medium"];
@@ -12,6 +15,9 @@ export default async function MarketingSeoPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const profile = await getCurrentProfile();
+  if (!(await hasCapability(profile, "seo"))) return <NotAuthorized title="SEO" />;
+
   const params = await searchParams;
   const severityParam = typeof params.severity === "string" ? (params.severity as SeoSeverity) : undefined;
   const severity = severityParam && SEVERITIES.includes(severityParam) ? severityParam : undefined;

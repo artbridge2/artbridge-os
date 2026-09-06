@@ -11,10 +11,9 @@ function revalidateContentViews() {
   revalidatePath("/", "layout");
 }
 
-/** Content lives under Marketing — reuses the same marketing_manage capability as Campaigns rather than inventing a parallel one. */
 async function requireAdmin() {
   const me = await getCurrentProfile();
-  if (!(await hasCapability(me, "marketing_manage"))) throw new Error("NOT_AUTHORIZED");
+  if (!(await hasCapability(me, "content"))) throw new Error("NOT_AUTHORIZED");
   return me;
 }
 

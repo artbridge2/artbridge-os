@@ -1,0 +1,75 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { setTaskProject } from "@/actions/projects";
+import { TaskRow } from "@/components/tasks/task-row";
+import { NewTaskDialog } from "@/components/tasks/new-task-dialog";
+import type { Area, Profile, TaskWithRelations } from "@/lib/types";
+
+export function ProjectTasks({
+  projectId,
+  tasks,
+  unlinkedTasks,
+  profiles,
+  areas,
+  defaultOwnerId,
+}: {
+  projectId: string;
+  tasks: TaskWithRelations[];
+  unlinkedTasks: { id: string; title: string }[];
+  profiles: Profile[];
+  areas: Area[];
+  defaultOwnerId: string;
+}) {
+  const router = useRouter();
+  const [selected, setSelected] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  function link() {
+    if (!selected) return;
+    startTransition(async () => {
+      await setTaskProject(selected, projectId);
+      router.refresh();
+      setSelected("");
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-[#eeeeee] bg-white p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] font-semibold uppercase tracking-wide text-[#9aa0a8]">Tasks</p>
+        <NewTaskDialog profiles={profiles} areas={areas} defaultOwnerId={defaultOwnerId} defaultProjectId={projectId} triggerLabel="New task" />
+      </div>
+      <div className="mt-3 space-y-2">
+        {tasks.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-[#e4e4e4] py-6 text-center text-[13px] text-[#9aa0a8]">No tasks linked yet.</p>
+        ) : (
+          tasks.map((task) => <TaskRow key={task.id} task={task} showAssignee />)
+        )}
+      </div>
+      {unlinkedTasks.length > 0 && (
+        <div className="mt-3 flex items-center gap-1.5">
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            className="h-9 flex-1 rounded-md border border-input bg-transparent px-2 text-[13px]"
+          >
+            <option value="">Link an existing task…</option>
+            {unlinkedTasks.map((t) => (
+              <option key={t.id} value={t.id}>{t.title}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={link}
+            disabled={!selected || pending}
+            className="h-9 shrink-0 rounded-md bg-[#12181f] px-3 text-[13px] font-medium text-white disabled:opacity-40"
+          >
+            {pending ? "Linking…" : "Link"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getAreas, getProfiles, getTaskAttachments, getTaskById, getTaskComments } from "@/lib/queries";
+import { getProjects } from "@/lib/queries-projects";
 import { TaskHeader } from "@/components/tasks/task-header";
 import { TaskDescription } from "@/components/tasks/task-description";
 import { TaskChecklist } from "@/components/tasks/task-checklist";
@@ -15,12 +16,13 @@ export default async function TaskDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [task, profiles, , comments, attachments] = await Promise.all([
+  const [task, profiles, , comments, attachments, projects] = await Promise.all([
     getTaskById(id),
     getProfiles(),
     getAreas(),
     getTaskComments(id),
     getTaskAttachments(id),
+    getProjects(),
   ]);
 
   if (!task) notFound();
@@ -44,7 +46,7 @@ export default async function TaskDetailPage({
         <TaskComments taskId={task.id} comments={comments} />
       </div>
 
-      <TaskSidebar task={task} profiles={profiles} />
+      <TaskSidebar task={task} profiles={profiles} projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
     </div>
   );
 }

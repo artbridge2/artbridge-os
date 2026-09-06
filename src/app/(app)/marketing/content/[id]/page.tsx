@@ -9,11 +9,13 @@ import { getContentItemById } from "@/lib/queries-content";
 import { ContentHeader } from "@/components/marketing/content-header";
 import { ContentBodyEditor } from "@/components/marketing/content-body-editor";
 import { ContentSidebar } from "@/components/marketing/content-sidebar";
+import { NotAuthorized } from "@/components/home/not-authorized";
 
 export default async function ContentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const profile = await getCurrentProfile();
-  const canManage = await hasCapability(profile, "marketing_manage");
+  if (!(await hasCapability(profile, "content"))) return <NotAuthorized title="Content" />;
+  const canManage = true;
 
   const [item, profiles, campaigns] = await Promise.all([getContentItemById(id), getProfiles(), getCampaigns()]);
 

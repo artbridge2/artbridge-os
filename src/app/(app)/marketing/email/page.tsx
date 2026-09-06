@@ -1,9 +1,15 @@
 import { ArrowRight, Mail, Users } from "lucide-react";
 import Link from "next/link";
+import { getCurrentProfile } from "@/lib/dal";
+import { hasCapability } from "@/lib/permissions";
 import { isKlaviyoConfigured } from "@/lib/klaviyo/client";
 import { listAudiences, listRecentCampaigns, type KlaviyoCampaignSummary, type KlaviyoListSummary } from "@/lib/klaviyo/campaigns";
+import { NotAuthorized } from "@/components/home/not-authorized";
 
 export default async function EmailMarketingPage() {
+  const profile = await getCurrentProfile();
+  if (!(await hasCapability(profile, "email_marketing"))) return <NotAuthorized title="Email Marketing" />;
+
   const configured = isKlaviyoConfigured();
 
   return (

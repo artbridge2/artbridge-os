@@ -5,7 +5,8 @@ import type { Area, Profile, TaskAttachment, TaskComment, TaskWithRelations } fr
 const TASK_SELECT = `
   *,
   owner:profiles!tasks_owner_id_fkey(id, full_name, role, email),
-  area:areas(id, name, sort_order)
+  area:areas(id, name, sort_order),
+  project:projects(id, name)
 `;
 
 export async function getProfiles(): Promise<Profile[]> {
@@ -29,6 +30,7 @@ export async function getAreas(): Promise<Area[]> {
 export interface TaskFilters {
   ownerId?: string;
   areaId?: string;
+  projectId?: string;
   status?: string;
   priority?: string;
   overdueOnly?: boolean;
@@ -42,6 +44,7 @@ export async function getTasks(filters: TaskFilters = {}): Promise<TaskWithRelat
 
   if (filters.ownerId) query = query.eq("owner_id", filters.ownerId);
   if (filters.areaId) query = query.eq("area_id", filters.areaId);
+  if (filters.projectId) query = query.eq("project_id", filters.projectId);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.priority) query = query.eq("priority", filters.priority);
   if (filters.excludeDone) query = query.neq("status", "completed");

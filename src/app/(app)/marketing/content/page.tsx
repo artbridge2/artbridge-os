@@ -7,6 +7,7 @@ import { getContentItems, getContentStatusCounts } from "@/lib/queries-content";
 import { ContentRow } from "@/components/marketing/content-row";
 import { NewContentDialog } from "@/components/marketing/new-content-dialog";
 import { SearchBox } from "@/components/communication/search-box";
+import { NotAuthorized } from "@/components/home/not-authorized";
 import { CONTENT_STATUS_LABELS, type ContentStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -17,9 +18,12 @@ export default async function ContentPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const params = await searchParams;
   const profile = await getCurrentProfile();
-  const canManage = await hasCapability(profile, "marketing_manage");
+  if (!(await hasCapability(profile, "content"))) return <NotAuthorized title="Content" />;
+
+  const params = await searchParams;
+  // Content has a single capability (unlike Campaigns' view/manage split) — passing the page gate above already means manage access too.
+  const canManage = true;
 
   const statusParam = typeof params.status === "string" ? (params.status as ContentStatus) : undefined;
   const status = statusParam && ALL_STATUSES.includes(statusParam) ? statusParam : undefined;

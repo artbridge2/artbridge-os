@@ -41,6 +41,6 @@ export function getAiCapabilities(): AiCapability[] {
     { key: "marketing_assistance", label: "Marketing assistance", module: "Marketing", status: "not_built", provider: null, note: "Not built yet — Campaigns has no AI assistance today." },
     { key: "email_drafting_analysis", label: "Email drafting & Klaviyo account analysis", module: "Email Marketing", status: "not_built", provider: null, note: "Email Marketing now shows real Klaviyo campaigns/audiences (Content module handles copy drafting) — AI-assisted analysis isn't wired yet." },
     { key: "seo_analysis", label: "SEO analysis & content drafting", module: "SEO", status: "not_built", provider: null, note: "SEO module isn't built yet." },
-    { key: "project_summarization", label: "Project summarization", module: "Projects", status: "not_built", provider: null, note: "Projects module isn't built yet." },
+    { key: "project_summarization", label: "Project summarization", module: "Projects", status: "not_built", provider: null, note: "Projects now exists (groups Tasks toward a goal, in Projects) — AI summarization isn't wired yet." },
   ];
 }

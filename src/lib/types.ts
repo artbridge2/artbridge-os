@@ -49,6 +49,7 @@ export interface Task extends TaskLinkedObject {
   status: TaskStatus;
   priority: TaskPriority;
   area_id: string | null;
+  project_id: string | null;
   due_date: string | null; // YYYY-MM-DD
   due_time: string | null; // HH:MM
   recurring_rule: RecurringRule | null;
@@ -65,6 +66,7 @@ export interface Task extends TaskLinkedObject {
 export interface TaskWithRelations extends Task {
   owner: Profile | null;
   area: Area | null;
+  project: Pick<Project, "id" | "name"> | null;
 }
 
 export interface TaskComment {
@@ -109,6 +111,48 @@ export const RECURRING_FREQ_LABELS: Record<RecurringFreq, string> = {
   weekly: "Hetente",
   monthly: "Havonta",
   quarterly: "Negyedévente",
+};
+
+// ---------------------------------------------------------------------------
+// Projects — a container for multi-task initiatives, structurally close to
+// Marketing Campaigns (same status vocabulary) but for internal work; Tasks
+// optionally belong to one via Task.project_id.
+// ---------------------------------------------------------------------------
+
+export type ProjectStatus = "planning" | "active" | "completed" | "cancelled";
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  owner_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: ProjectStatus;
+  priority: TaskPriority;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface ProjectWithRelations extends Project {
+  owner: Profile | null;
+}
+
+export interface ProjectComment {
+  id: string;
+  project_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  planning: "Planning",
+  active: "Active",
+  completed: "Completed",
+  cancelled: "Cancelled",
 };
 
 // ---------------------------------------------------------------------------

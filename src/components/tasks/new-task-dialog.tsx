@@ -22,10 +22,14 @@ export function NewTaskDialog({
   profiles,
   areas,
   defaultOwnerId,
+  defaultProjectId,
+  triggerLabel = "New task",
 }: {
   profiles: Profile[];
   areas: Area[];
   defaultOwnerId: string;
+  defaultProjectId?: string;
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState<TaskFormState, FormData>(createTask, undefined);
@@ -36,7 +40,7 @@ export function NewTaskDialog({
         render={
           <Button className="bg-[#12181f] text-white hover:bg-[#12181f]/90">
             <Plus className="size-4" />
-            New task
+            {triggerLabel}
           </Button>
         }
       />
@@ -45,6 +49,7 @@ export function NewTaskDialog({
           <DialogTitle>New task</DialogTitle>
         </DialogHeader>
         <form action={action} className="flex flex-col gap-4">
+          {defaultProjectId && <input type="hidden" name="project_id" value={defaultProjectId} />}
           <div className="space-y-2">
             <Label htmlFor="title">Title</Label>
             <Input id="title" name="title" required autoFocus />
