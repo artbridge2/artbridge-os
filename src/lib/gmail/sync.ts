@@ -5,6 +5,7 @@ import {
   getThread,
   listChangedThreadIds,
   listRecentThreadIds,
+  listThreadIdsByQuery,
   type FetchedThread,
 } from "./client";
 import { classifyThread, extractEmail, generateReplyDraft, CLASSIFICATION_VERSION, type ClassificationResult, type ShopifyDraftContext, type ThreadForAI } from "@/lib/ai/provider";
@@ -304,7 +305,7 @@ async function getConnectedEmail(admin: Admin): Promise<string> {
  * single bad thread — logs and moves on so one malformed email doesn't stop
  * the whole sync.
  */
-async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void> {
+export async function upsertThread(admin: Admin, fetched: FetchedThread): Promise<void> {
   const newestMessageId = fetched.messages.at(-1)?.gmailMessageId ?? null;
   const lastInbound = [...fetched.messages].reverse().find((m) => m.isInbound);
   const lastOutbound = [...fetched.messages].reverse().find((m) => !m.isInbound);
@@ -854,6 +855,36 @@ export async function classifySpecificThreads(
   }
 
   return { processed, skippedJunk, skippedMissing, skippedAlready, errors, errorSamples, timedOut };
+}
+
+/**
+ * One-off reconciliation helper: finds threads matching a raw Gmail search
+ * query (e.g. a specific person's name) that may predate the initial sync
+ * window and so never got imported at all, and imports+classifies them via
+ * the normal upsertThread path. Used to backfill specific historical
+ * applications Ádám named directly.
+ */
+export async function importAndClassifyByGmailQuery(
+  query: string
+): Promise<{ found: string[]; imported: number; errors: string[] }> {
+  const admin = createAdminClient();
+  const myEmail = await getConnectedEmail(admin);
+  const threadIds = await listThreadIdsByQuery(query);
+  let imported = 0;
+  const errors: string[] = [];
+
+  for (const id of threadIds) {
+    try {
+      const fetched = await getThread(id, myEmail);
+      await upsertThread(admin, fetched);
+      imported++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`${id}: ${message}`);
+    }
+  }
+
+  return { found: threadIds, imported, errors };
 }
 
 /** Resolved -> Archived after 3 days (spec §11). Call this from the daily cron alongside the Gmail sync. */
