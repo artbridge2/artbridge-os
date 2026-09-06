@@ -27,6 +27,7 @@ const AUTOMATED_SENDER_PATTERN =
  * infrastructure, never a guess at a specific business's own domain.
  */
 const AUTOMATED_SENDING_DOMAINS = [
+  /(^|\.)klaviyo\.com$/i,
   /(^|\.)klaviyomail\.com$/i,
   /(^|\.)e\.klaviyo\.com$/i,
   /(^|\.)mail\.shopify\.com$/i,
@@ -37,6 +38,16 @@ const AUTOMATED_SENDING_DOMAINS = [
   /(^|\.)sendgrid\.net$/i,
   /(^|\.)amazonses\.com$/i,
   /(^|\.)sparkpostmail\.com$/i,
+  // Found live during the reconciliation pass — real, confirmed-automated
+  // vendor/system domains for THIS mailbox specifically, not a guess:
+  /(^|\.)gls-hungary\.com$/i, // courier scheduled reports/auto-replies, no human on the other end
+  /(^|\.)wshostmag\.com$/i, // Artbridge's OWN dev/staging system sending itself test emails
+  /(^|\.)hellorep\.ai$/i, // third-party AI-support vendor's marketing/billing mail
+  /(^|\.)godaddy\.com$/i, // domain registrar renewal notices
+  /(^|\.)szamlazz\.hu$/i, // Hungarian invoicing SaaS, transactional only
+  /(^|\.)billingo\.com$/i,
+  /(^|\.)sendtric\.com$/i,
+  /(^|\.)optimonk\.com$/i,
 ];
 
 function extractEmail(raw: string | null): string | null {
@@ -79,6 +90,13 @@ export async function decideIngestion(input: { sender: string | null; subject: s
   }
 
   if (domain && AUTOMATED_SENDING_DOMAINS.some((pattern) => pattern.test(domain))) {
+    return { suppressed: true, ruleMatched: false, reason: "heuristic:automated-sending-domain" };
+  }
+
+  // A "noreply."-prefixed subdomain (e.g. noreply.telekom.hu) is as reliable
+  // a signal as a noreply@ local-part — the earlier local-part-only check
+  // missed this shape entirely.
+  if (domain && /^no-?reply\./i.test(domain)) {
     return { suppressed: true, ruleMatched: false, reason: "heuristic:automated-sending-domain" };
   }
 
