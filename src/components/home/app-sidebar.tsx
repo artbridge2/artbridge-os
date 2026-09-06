@@ -15,6 +15,7 @@ import {
   ChevronUp,
   ChevronDown,
   ArrowUpRight,
+  CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS, COMMUNICATION_CATEGORY_GROUPS, type EmailCategory, type Role } from "@/lib/types";
@@ -86,9 +87,11 @@ function SubNavRow({ href, label, count }: { href: string; label: string; count?
 export function AppSidebar({
   role,
   communicationCounts,
+  taskCount,
 }: {
   role: Role;
   communicationCounts?: { total: number; byCategory: Partial<Record<EmailCategory, number>> };
+  taskCount?: number;
 }) {
   const pathname = usePathname();
   const [marketingOpen, setMarketingOpen] = useState(true);
@@ -135,6 +138,7 @@ export function AppSidebar({
               )}
             </>
           )}
+          <NavRow href="/tasks" icon={CheckSquare} label="Tasks" count={taskCount ?? 0} active={pathname.startsWith("/tasks")} />
           <button
             type="button"
             onClick={() => setMarketingOpen((v) => !v)}

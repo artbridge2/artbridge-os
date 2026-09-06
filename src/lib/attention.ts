@@ -51,7 +51,7 @@ async function getCommunicationAttentionItems(ownerId: string): Promise<Attentio
         owner_id: t.owner_id,
         title: t.subject || t.sender || "(no subject)",
         context: t.ai_summary,
-        priority: t.priority === "urgent" ? "critical" : t.priority,
+        priority: t.priority,
         due_at: null,
         follow_up_at: dueAt,
         attention_reason: t.draft_reply ? "AI reply ready for review" : CASE_STATUS_LABELS[t.status],
@@ -64,10 +64,10 @@ async function getCommunicationAttentionItems(ownerId: string): Promise<Attentio
 }
 
 function taskIsAttentionWorthy(task: TaskWithRelations, weekEnd: string): boolean {
-  if (task.status === "done") return false;
+  if (task.status === "completed") return false;
   const overdue = !!task.due_date && task.due_date < todayInBudapest();
   const dueThisWeek = !!task.due_date && task.due_date <= weekEnd;
-  const highPriority = task.priority === "high" || task.priority === "critical";
+  const highPriority = task.priority === "high" || task.priority === "urgent";
   return overdue || dueThisWeek || highPriority;
 }
 
@@ -99,7 +99,7 @@ async function getTaskAttentionItems(ownerId: string): Promise<AttentionItem[]> 
 
 /** Band per spec §8 — lower sorts first. AI relevance may only reorder within the same band (not implemented — no scoring signal available without an AI key). */
 function rankBand(item: AttentionItem): number {
-  if (item.priority === "critical") return 1; // "Urgent"
+  if (item.priority === "urgent") return 1;
   if (item.overdue) return 2;
   if (item.needsHumanDecision) return 3;
   if (item.follow_up_at) return 4; // follow-up due (already filtered to "due" above)
@@ -159,13 +159,13 @@ export async function getHomeStats(ownerId: string): Promise<HomeStats> {
   const completedCommunication = allThreadsForCompletion.filter(
     (t) => t.resolved_at && t.resolved_at >= weekStartIso
   ).length;
-  const completedTasks = tasks.filter((t) => t.status === "done" && t.completed_at && t.completed_at >= weekStartIso).length;
+  const completedTasks = tasks.filter((t) => t.status === "completed" && t.completed_at && t.completed_at >= weekStartIso).length;
 
   const pendingCommunication = activeThreads.length;
-  const pendingTasks = tasks.filter((t) => t.status !== "done").length;
+  const pendingTasks = tasks.filter((t) => t.status !== "completed").length;
 
   const dueTasksThisWeek = tasks.filter(
-    (t) => t.status !== "done" && t.due_date && t.due_date >= todayInBudapest() && t.due_date <= weekEndDate
+    (t) => t.status !== "completed" && t.due_date && t.due_date >= todayInBudapest() && t.due_date <= weekEndDate
   ).length;
 
   return {

@@ -8,17 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-  SheetFooter,
-  SheetClose,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { PRIORITY_LABELS, ROLE_LABELS, type Area, type Profile } from "@/lib/types";
 
-export function TaskCreateSheet({
+export function NewTaskDialog({
   profiles,
   areas,
   defaultOwnerId,
@@ -28,30 +28,31 @@ export function TaskCreateSheet({
   defaultOwnerId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, action, pending] = useActionState<TaskFormState, FormData>(
-    createTask,
-    undefined
-  );
+  const [state, action, pending] = useActionState<TaskFormState, FormData>(createTask, undefined);
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger render={<Button size="sm" />}>
-        <Plus className="size-4" />
-        Új task
-      </SheetTrigger>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>Új task</SheetTitle>
-        </SheetHeader>
-        <form action={action} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button className="bg-[#12181f] text-white hover:bg-[#12181f]/90">
+            <Plus className="size-4" />
+            New task
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New task</DialogTitle>
+        </DialogHeader>
+        <form action={action} className="flex flex-col gap-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Cím</Label>
+            <Label htmlFor="title">Title</Label>
             <Input id="title" name="title" required autoFocus />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="owner_id">Felelős</Label>
+              <Label htmlFor="owner_id">Assignee</Label>
               <select
                 id="owner_id"
                 name="owner_id"
@@ -67,19 +68,15 @@ export function TaskCreateSheet({
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="due_date">Határidő</Label>
-              <Input id="due_date" name="due_date" type="date" required />
+              <Label htmlFor="due_date">Due date</Label>
+              <Input id="due_date" name="due_date" type="date" />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="area_id">Area</Label>
-              <select
-                id="area_id"
-                name="area_id"
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
+              <select id="area_id" name="area_id" className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm">
                 <option value="">—</option>
                 {areas.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -89,7 +86,7 @@ export function TaskCreateSheet({
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="priority">Prioritás</Label>
+              <Label htmlFor="priority">Priority</Label>
               <select
                 id="priority"
                 name="priority"
@@ -106,22 +103,20 @@ export function TaskCreateSheet({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="description">Leírás (opcionális)</Label>
+            <Label htmlFor="description">Description (optional)</Label>
             <Textarea id="description" name="description" rows={3} />
           </div>
 
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-          <SheetFooter className="px-0">
+          <DialogFooter className="px-0">
             <Button type="submit" disabled={pending}>
-              {pending ? "Mentés..." : "Task létrehozása"}
+              {pending ? "Creating…" : "Create task"}
             </Button>
-            <SheetClose render={<Button type="button" variant="ghost" />}>
-              Mégse
-            </SheetClose>
-          </SheetFooter>
+            <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
+          </DialogFooter>
         </form>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

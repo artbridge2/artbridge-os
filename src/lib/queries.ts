@@ -1,12 +1,11 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { Area, Profile, TaskWithRelations } from "@/lib/types";
+import type { Area, Profile, TaskAttachment, TaskComment, TaskWithRelations } from "@/lib/types";
 
 const TASK_SELECT = `
   *,
   owner:profiles!tasks_owner_id_fkey(id, full_name, role, email),
-  area:areas(id, name, sort_order),
-  source_thread:email_threads(id, subject)
+  area:areas(id, name, sort_order)
 `;
 
 export async function getProfiles(): Promise<Profile[]> {
@@ -45,10 +44,10 @@ export async function getTasks(filters: TaskFilters = {}): Promise<TaskWithRelat
   if (filters.areaId) query = query.eq("area_id", filters.areaId);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.priority) query = query.eq("priority", filters.priority);
-  if (filters.excludeDone) query = query.neq("status", "done");
+  if (filters.excludeDone) query = query.neq("status", "completed");
   if (filters.overdueOnly) {
     const today = new Date().toISOString().slice(0, 10);
-    query = query.lt("due_date", today).neq("status", "done");
+    query = query.lt("due_date", today).neq("status", "completed");
   }
   if (filters.search) query = query.ilike("title", `%${filters.search}%`);
 
@@ -70,7 +69,7 @@ export async function getTasksInDateRange(
     .select(TASK_SELECT)
     .gte("due_date", startDate)
     .lte("due_date", endDate)
-    .neq("status", "done")
+    .neq("status", "completed")
     .order("due_date", { ascending: true });
   return (data ?? []) as unknown as TaskWithRelations[];
 }
@@ -94,4 +93,26 @@ export async function getRecurringSiblings(rootId: string): Promise<TaskWithRela
     .or(`id.eq.${rootId},recurring_parent_id.eq.${rootId}`)
     .order("due_date", { ascending: true });
   return (data ?? []) as unknown as TaskWithRelations[];
+}
+
+const COMMENT_SELECT = `*, author:profiles!task_comments_author_id_fkey(id, full_name, role, email)`;
+
+export async function getTaskComments(taskId: string): Promise<(TaskComment & { author: Profile | null })[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("task_comments")
+    .select(COMMENT_SELECT)
+    .eq("task_id", taskId)
+    .order("created_at", { ascending: true });
+  return (data ?? []) as unknown as (TaskComment & { author: Profile | null })[];
+}
+
+export async function getTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("task_attachments")
+    .select("*")
+    .eq("task_id", taskId)
+    .order("created_at", { ascending: true });
+  return (data ?? []) as TaskAttachment[];
 }

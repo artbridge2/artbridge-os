@@ -281,6 +281,8 @@ export async function createTaskFromThread(
   const supabase = await createClient();
   const me = await getCurrentProfile();
 
+  const { data: thread } = await supabase.from("email_threads").select("subject").eq("id", threadId).single();
+
   const { data: task, error } = await supabase
     .from("tasks")
     .insert({
@@ -289,8 +291,10 @@ export async function createTaskFromThread(
       area_id: input.areaId,
       priority: input.priority,
       status: "todo",
-      source_type: "email",
-      source_thread_id: threadId,
+      linked_type: "communication",
+      linked_id: threadId,
+      linked_href: `/communication/${threadId}`,
+      linked_title: thread?.subject ?? "(no subject)",
       created_by: me.id,
     })
     .select("id")

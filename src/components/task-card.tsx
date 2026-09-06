@@ -14,8 +14,8 @@ export function TaskCard({
   showOwner?: boolean;
 }) {
   const today = todayInBudapest();
-  const isOverdue = !!task.due_date && task.due_date < today && task.status !== "done";
-  const isDone = task.status === "done";
+  const isOverdue = !!task.due_date && task.due_date < today && task.status !== "completed";
+  const isDone = task.status === "completed";
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3">

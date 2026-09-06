@@ -21,7 +21,7 @@ export function bucketTasks(tasks: TaskWithRelations[]): Buckets {
   const buckets: Buckets = { overdue: [], today: [], thisWeek: [], upcoming: [] };
 
   for (const task of tasks) {
-    if (!task.due_date || task.status === "done") continue;
+    if (!task.due_date || task.status === "completed") continue;
     if (task.due_date < today) buckets.overdue.push(task);
     else if (task.due_date === today) buckets.today.push(task);
     else if (task.due_date <= weekEnd) buckets.thisWeek.push(task);

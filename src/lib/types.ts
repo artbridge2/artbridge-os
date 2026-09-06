@@ -1,8 +1,8 @@
 export type Role = "adam" | "eszter" | "kurator";
 
-export type TaskStatus = "backlog" | "todo" | "in_progress" | "waiting" | "done";
+export type TaskStatus = "todo" | "in_progress" | "completed";
 
-export type TaskPriority = "low" | "normal" | "high" | "critical";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
 
 export type RecurringFreq = "daily" | "weekdays" | "weekly" | "monthly" | "quarterly";
 
@@ -27,7 +27,21 @@ export interface Area {
   sort_order: number;
 }
 
-export interface Task {
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+/** Optional reference to another canonical Artbridge OS object — context only, never lifecycle. */
+export interface TaskLinkedObject {
+  linked_type: string | null;
+  linked_id: string | null;
+  linked_href: string | null;
+  linked_title: string | null;
+}
+
+export interface Task extends TaskLinkedObject {
   id: string;
   title: string;
   description: string | null;
@@ -39,35 +53,48 @@ export interface Task {
   due_time: string | null; // HH:MM
   recurring_rule: RecurringRule | null;
   recurring_parent_id: string | null;
+  checklist: ChecklistItem[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
   next_action: string | null;
   notes: string | null;
-  source_type: "email" | null;
-  source_thread_id: string | null;
 }
 
 export interface TaskWithRelations extends Task {
   owner: Profile | null;
   area: Area | null;
-  source_thread: { id: string; subject: string | null } | null;
+}
+
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  name: string;
+  url: string;
+  added_by: string | null;
+  created_at: string;
 }
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
-  backlog: "Backlog",
-  todo: "To Do",
-  in_progress: "In Progress",
-  waiting: "Waiting",
-  done: "Done",
+  todo: "To do",
+  in_progress: "In progress",
+  completed: "Completed",
 };
 
 export const PRIORITY_LABELS: Record<TaskPriority, string> = {
   low: "Low",
   normal: "Normal",
   high: "High",
-  critical: "Critical",
+  urgent: "Urgent",
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
