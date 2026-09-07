@@ -28,7 +28,7 @@ export function TicketHeader({ thread, shopifyMatch }: { thread: EmailThreadWith
             <CategoryEditor threadId={thread.id} category={thread.category} />
             {issueLabel && <span className="text-[#9aa0a8]"> · {issueLabel}</span>}
           </p>
-          <EditableTitle title={title} onSave={(next) => setSubjectOverride(thread.id, next)} />
+          <EditableTitle title={title} onSave={setSubjectOverride.bind(null, thread.id)} />
           <p className="text-[13.5px] text-[#8a909a]">
             {name}
             {thread.sender && thread.sender !== name && <> · {thread.sender}</>}
