@@ -25,9 +25,9 @@ export function ArtistOutreachPanel({
   const [subject, setSubject] = useState(thread?.subject ?? "");
   const [subjectError, setSubjectError] = useState<string | null>(null);
 
-  async function onSend(body: string, _mentionedProfileIds: string[]) {
+  async function onSend(body: string, _mentionedProfileIds: string[], files: File[]) {
     if (thread) {
-      await replyArtistOutreach(thread.id, body);
+      await replyArtistOutreach(thread.id, body, files);
     } else {
       if (!subject.trim()) {
         setSubjectError("Subject is required to start outreach.");
@@ -35,7 +35,7 @@ export function ArtistOutreachPanel({
       }
       setSubjectError(null);
       try {
-        await sendArtistOutreach(artistId, subject, body);
+        await sendArtistOutreach(artistId, subject, body, files);
       } catch (err) {
         if (err instanceof Error && err.message === "GMAIL_NOT_CONNECTED") throw new Error("Gmail isn't connected — connect it in Settings first.");
         if (err instanceof Error && err.message === "NO_VERIFIED_EMAIL") throw new Error("No verified email found for this artist — add one to send outreach.");
@@ -85,6 +85,7 @@ export function ArtistOutreachPanel({
             onGenerateDraft={() => generateArtistDraft(artistId, thread?.id ?? null)}
             onGenerateFromBrief={(brief) => generateArtistDraftFromBrief(artistId, thread?.id ?? null, brief)}
             onSend={onSend}
+            attachable
             header={
               !thread ? (
                 <div className="mb-2">

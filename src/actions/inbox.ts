@@ -8,7 +8,7 @@ import { getCurrentProfile } from "@/lib/dal";
 import { notifyUser, notifyMentions } from "@/lib/notify";
 import { classifyThread, extractEmail, generateReplyDraft, generateReplyDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
 import { applyClassification, linkThreadToArtist, resolveOwnerProfileId } from "@/lib/gmail/sync";
-import { sendReply as sendGmailReply } from "@/lib/gmail/client";
+import { sendReply as sendGmailReply, filesToAttachments } from "@/lib/gmail/client";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import type { CasePriority, CaseStatus, EmailCategory } from "@/lib/types";
 
@@ -449,7 +449,7 @@ export async function postInternalNote(threadId: string, body: string, mentioned
  * "GMAIL_NOT_CONNECTED" if Gmail hasn't been connected yet; callers show a
  * Connect Gmail state rather than a raw error.
  */
-export async function sendReply(threadId: string, body: string) {
+export async function sendReply(threadId: string, body: string, files: File[] = []) {
   if (!body.trim()) return;
   const supabase = await createClient();
   const me = await getCurrentProfile();
@@ -475,6 +475,7 @@ export async function sendReply(threadId: string, body: string) {
     subject: thread.subject ?? "(no subject)",
     body,
     from: gmailIntegration.connected_email,
+    attachments: await filesToAttachments(files),
   });
 
   const now = new Date().toISOString();

@@ -21,12 +21,12 @@ export function ReplyComposer({
   const router = useRouter();
   const [mode, setMode] = useState<"reply" | "note">("reply");
 
-  async function onSend(text: string, mentionedProfileIds: string[]) {
+  async function onSend(text: string, mentionedProfileIds: string[], files: File[]) {
     try {
       if (mode === "note") {
         await postInternalNote(threadId, text, mentionedProfileIds);
       } else {
-        await sendReply(threadId, text);
+        await sendReply(threadId, text, files);
       }
       router.refresh();
     } catch (err) {
@@ -51,6 +51,7 @@ export function ReplyComposer({
         onGenerateFromBrief={mode === "reply" ? (brief) => generateDraftFromBrief(threadId, brief) : undefined}
         onSend={onSend}
         mentionable={mode === "note"}
+        attachable={mode === "reply"}
         profiles={profiles}
         header={
           <div className="flex items-center gap-1">

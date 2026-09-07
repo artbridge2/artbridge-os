@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
-import { Sparkles, PenLine, Send } from "lucide-react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
+import { Sparkles, PenLine, Send, Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MentionInput, resolveMentions } from "@/components/shared/mention-input";
@@ -28,6 +28,7 @@ export function AiComposer({
   onSend,
   mentionable = false,
   profiles = [],
+  attachable = false,
 }: {
   initialText?: string;
   initialIsAiDraft?: boolean;
@@ -42,10 +43,12 @@ export function AiComposer({
   onGenerateDraft?: () => Promise<string>;
   /** Omit to hide "Write from brief". */
   onGenerateFromBrief?: (brief: string) => Promise<string>;
-  onSend: (text: string, mentionedProfileIds: string[]) => Promise<void>;
+  onSend: (text: string, mentionedProfileIds: string[], files: File[]) => Promise<void>;
   /** Internal notes/comments support @mentions; outgoing email doesn't. */
   mentionable?: boolean;
   profiles?: Profile[];
+  /** File/image attachments — only meaningful for actual outgoing email, not internal notes. */
+  attachable?: boolean;
 }) {
   const [text, setText] = useState(initialText);
   const [isAiDraft, setIsAiDraft] = useState(initialIsAiDraft);
@@ -53,8 +56,28 @@ export function AiComposer({
   const [showBrief, setShowBrief] = useState(false);
   const [brief, setBrief] = useState("");
   const [picks, setPicks] = useState<{ id: string; name: string }[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
   const [draftPending, startDraftTransition] = useTransition();
+
+  const MAX_TOTAL_BYTES = 20 * 1024 * 1024; // Gmail's own cap is ~25MB; leave headroom for headers/encoding overhead
+
+  function addFiles(picked: FileList | null) {
+    if (!picked || picked.length === 0) return;
+    const next = [...files, ...Array.from(picked)];
+    const totalBytes = next.reduce((sum, f) => sum + f.size, 0);
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      setError("Attachments too large — Gmail's limit is about 25MB total per email.");
+      return;
+    }
+    setError(null);
+    setFiles(next);
+  }
+
+  function removeFile(index: number) {
+    setFiles((fs) => fs.filter((_, i) => i !== index));
+  }
 
   function runDraft(fn: () => Promise<string>) {
     setError(null);
@@ -81,10 +104,11 @@ export function AiComposer({
     const mentionedProfileIds = mentionable ? resolveMentions(text, picks, profiles) : [];
     startTransition(async () => {
       try {
-        await onSend(text, mentionedProfileIds);
+        await onSend(text, mentionedProfileIds, files);
         setText("");
         setIsAiDraft(false);
         setPicks([]);
+        setFiles([]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       }
@@ -157,6 +181,22 @@ export function AiComposer({
         </div>
       )}
 
+      {attachable && files.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {files.map((f, i) => (
+            <span
+              key={`${f.name}-${i}`}
+              className="flex items-center gap-1 rounded-md bg-[#f0f0f0] px-2 py-1 text-[12.5px] font-medium text-[#3d4451]"
+            >
+              {f.name} <span className="text-[#9aa0a8]">({Math.max(1, Math.round(f.size / 1024))} KB)</span>
+              <button type="button" onClick={() => removeFile(i)} disabled={busy}>
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {error && <p className="mt-1 px-1 text-[13px] text-destructive">{error}</p>}
       {disabledNotice && <p className="mt-1 px-1 text-[13px] text-muted-foreground">{disabledNotice}</p>}
 
@@ -173,6 +213,24 @@ export function AiComposer({
               <PenLine className="size-3.5" />
               Write from brief
             </Button>
+          )}
+          {attachable && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = ""; // allow re-picking the same file after removing it
+                }}
+              />
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => fileInputRef.current?.click()}>
+                <Paperclip className="size-3.5" />
+                Attach
+              </Button>
+            </>
           )}
         </div>
         <Button type="button" size="sm" disabled={busy || !text.trim()} onClick={submit} className="bg-[#12181f] hover:bg-[#12181f]/90">

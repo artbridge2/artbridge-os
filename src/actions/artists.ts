@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
 import { notifyUser, notifyMentions } from "@/lib/notify";
-import { sendNewMessage, sendReply as sendGmailReply } from "@/lib/gmail/client";
+import { sendNewMessage, sendReply as sendGmailReply, filesToAttachments } from "@/lib/gmail/client";
 import { findPossibleDuplicates, type DuplicateCandidateInput } from "@/lib/artists/duplicate-detection";
 import { generateArtistOutreachDraft, generateArtistOutreachDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
 import type { ArtistLink, ArtistStatus, FitAssessment, RejectionReason } from "@/lib/types";
@@ -353,7 +353,7 @@ export async function reviewApplication(
 // shared Gmail connection, never Communication.
 // ---------------------------------------------------------------------------
 
-export async function sendArtistOutreach(artistId: string, subject: string, body: string) {
+export async function sendArtistOutreach(artistId: string, subject: string, body: string, files: File[] = []) {
   if (!body.trim()) return;
   const supabase = await createClient();
   const me = await getCurrentProfile();
@@ -376,6 +376,7 @@ export async function sendArtistOutreach(artistId: string, subject: string, body
     subject,
     body,
     from: gmailIntegration.connected_email,
+    attachments: await filesToAttachments(files),
   });
 
   const { data: thread, error } = await supabase
@@ -411,7 +412,7 @@ export async function setOutreachSubject(threadId: string, subject: string) {
 }
 
 /** Replies within an existing Artist outreach thread — never touches Communication. */
-export async function replyArtistOutreach(threadId: string, body: string) {
+export async function replyArtistOutreach(threadId: string, body: string, files: File[] = []) {
   if (!body.trim()) return;
   const supabase = await createClient();
   const me = await getCurrentProfile();
@@ -437,6 +438,7 @@ export async function replyArtistOutreach(threadId: string, body: string) {
     subject: thread.subject ?? "(no subject)",
     body,
     from: gmailIntegration.connected_email,
+    attachments: await filesToAttachments(files),
   });
 
   const now = new Date().toISOString();

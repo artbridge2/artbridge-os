@@ -1,4 +1,5 @@
 import "server-only";
+import crypto from "node:crypto";
 import { google, type gmail_v1 } from "googleapis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { plainTextFromHtml, sanitizeEmailHtml } from "./sanitize";
@@ -296,24 +297,71 @@ function encodeHeaderValue(text: string): string {
   return `=?UTF-8?B?${Buffer.from(text, "utf8").toString("base64")}?=`;
 }
 
+export interface OutgoingAttachment {
+  filename: string;
+  mimeType: string;
+  /** Already base64-encoded file bytes. */
+  data: string;
+}
+
+/** Converts composer-uploaded File objects (Server Actions accept File args directly) into the base64 shape buildRawMessage needs. */
+export async function filesToAttachments(files: File[]): Promise<OutgoingAttachment[]> {
+  return Promise.all(
+    files.map(async (f) => ({
+      filename: f.name,
+      mimeType: f.type || "application/octet-stream",
+      data: Buffer.from(await f.arrayBuffer()).toString("base64"),
+    }))
+  );
+}
+
+/** Base64, wrapped at the 76-char line length RFC 2045 requires for encoded body parts. */
+function base64Wrapped(base64: string): string {
+  return base64.replace(/(.{76})/g, "$1\r\n");
+}
+
 function buildRawMessage(opts: {
   to: string;
   subject: string;
   body: string;
   inReplyTo?: string | null;
   from: string;
+  attachments?: OutgoingAttachment[];
 }): string {
   const headers = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
     `Subject: ${encodeHeaderValue(opts.subject)}`,
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
-    "Content-Transfer-Encoding: base64",
     ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`, `References: ${opts.inReplyTo}`] : []),
   ];
-  const encodedBody = Buffer.from(opts.body, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
-  const raw = `${headers.join("\r\n")}\r\n\r\n${encodedBody}`;
+
+  const encodedBody = base64Wrapped(Buffer.from(opts.body, "utf8").toString("base64"));
+
+  let raw: string;
+  if (!opts.attachments || opts.attachments.length === 0) {
+    headers.push("Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64");
+    raw = `${headers.join("\r\n")}\r\n\r\n${encodedBody}`;
+  } else {
+    const boundary = `----=_ArtbridgeBoundary_${crypto.randomBytes(16).toString("hex")}`;
+    headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+    const bodyPart = ["Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64", "", encodedBody].join("\r\n");
+
+    const attachmentParts = opts.attachments.map((a) =>
+      [
+        `Content-Type: ${a.mimeType}; name="${encodeHeaderValue(a.filename)}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${encodeHeaderValue(a.filename)}"`,
+        "",
+        base64Wrapped(a.data),
+      ].join("\r\n")
+    );
+
+    const parts = [bodyPart, ...attachmentParts].map((p) => `--${boundary}\r\n${p}`).join("\r\n\r\n");
+    raw = `${headers.join("\r\n")}\r\n\r\n${parts}\r\n\r\n--${boundary}--`;
+  }
+
   return Buffer.from(raw, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -324,6 +372,7 @@ export async function sendReply(opts: {
   body: string;
   from: string;
   inReplyToRfc822MessageId?: string | null;
+  attachments?: OutgoingAttachment[];
 }): Promise<void> {
   const gmail = await getAuthorizedClient();
   await gmail.users.messages.send({
@@ -336,6 +385,7 @@ export async function sendReply(opts: {
         body: opts.body,
         from: opts.from,
         inReplyTo: opts.inReplyToRfc822MessageId,
+        attachments: opts.attachments,
       }),
     },
   });
@@ -347,12 +397,13 @@ export async function sendNewMessage(opts: {
   subject: string;
   body: string;
   from: string;
+  attachments?: OutgoingAttachment[];
 }): Promise<{ gmailThreadId: string; gmailMessageId: string }> {
   const gmail = await getAuthorizedClient();
   const { data } = await gmail.users.messages.send({
     userId: "me",
     requestBody: {
-      raw: buildRawMessage({ to: opts.to, subject: opts.subject, body: opts.body, from: opts.from }),
+      raw: buildRawMessage({ to: opts.to, subject: opts.subject, body: opts.body, from: opts.from, attachments: opts.attachments }),
     },
   });
   if (!data.threadId || !data.id) throw new Error("Gmail did not return a thread/message ID");
