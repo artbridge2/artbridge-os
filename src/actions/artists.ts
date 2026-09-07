@@ -190,6 +190,16 @@ export async function setFitAssessment(artistId: string, fit: FitAssessment | nu
   revalidateArtistViews();
 }
 
+/** Renames whichever field is actually driving the displayed title (ArtistHeader shows artist_name when set, full_name otherwise) — so editing the title always updates the field the user is actually looking at. */
+export async function setArtistDisplayName(artistId: string, name: string) {
+  if (!name.trim()) return;
+  const supabase = await createClient();
+  const { data: artist } = await supabase.from("artists").select("artist_name").eq("id", artistId).single();
+  const field = artist?.artist_name ? "artist_name" : "full_name";
+  await supabase.from("artists").update({ [field]: name.trim() }).eq("id", artistId);
+  revalidateArtistViews();
+}
+
 export async function updateArtistField(
   artistId: string,
   patch: Partial<{ bio: string | null; technique: string | null; location: string | null; website: string | null; instagram: string | null; phone: string | null; email: string | null }>

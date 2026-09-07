@@ -1,4 +1,6 @@
+import { setArtistDisplayName } from "@/actions/artists";
 import { ArtistStatusBadge, FitBadge } from "@/components/artists/artist-badges";
+import { EditableTitle } from "@/components/shared/editable-title";
 import { initials } from "@/lib/communication-style";
 import { ARTIST_SOURCE_LABELS, type ArtistWithRelations } from "@/lib/types";
 
@@ -7,13 +9,13 @@ export function ArtistHeader({ artist }: { artist: ArtistWithRelations }) {
 
   return (
     <div className="flex items-start justify-between gap-4">
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#eeecfd] text-[15px] font-semibold text-[#7c6fe0]">
           {initials(name)}
         </span>
-        <div>
+        <div className="min-w-0">
           <p className="text-[13px] font-medium text-[#7c6fe0]">{ARTIST_SOURCE_LABELS[artist.source]}</p>
-          <p className="text-[19px] font-semibold text-[#12181f]">{name}</p>
+          <EditableTitle title={name} onSave={setArtistDisplayName.bind(null, artist.id)} />
           {artist.artist_name && <p className="text-[13.5px] text-[#8a909a]">{artist.full_name}</p>}
         </div>
       </div>
