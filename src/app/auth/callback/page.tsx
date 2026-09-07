@@ -11,9 +11,9 @@ import { createClient } from "@/lib/supabase/client";
  * hash fragment. A hash fragment is never sent to the server at all, so a
  * server Route Handler (the previous implementation) could never see it and
  * silently fell through to "invalid link" for every real recovery email.
- * The browser Supabase client's `detectSessionInUrl` (on by default) reads
- * either shape straight from `window.location` on mount and establishes the
- * session client-side; `onAuthStateChange` tells us which happened.
+ * Parses the hash directly and calls setSession() explicitly rather than
+ * relying on the client's automatic detectSessionInUrl/onAuthStateChange —
+ * confirmed live that the automatic path never fired here.
  */
 export default function AuthCallbackPage() {
   return (
@@ -29,24 +29,25 @@ function AuthCallbackInner() {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    const supabase = createClient();
     const next = searchParams.get("next") || "/";
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const accessToken = hash.get("access_token");
+    const refreshToken = hash.get("refresh_token");
+    const type = hash.get("type");
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        router.replace("/reset-password");
-      } else if (event === "SIGNED_IN") {
-        router.replace(next);
+    if (!accessToken || !refreshToken) {
+      setFailed(true);
+      return;
+    }
+
+    const supabase = createClient();
+    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }).then(({ error }) => {
+      if (error) {
+        setFailed(true);
+        return;
       }
+      router.replace(type === "recovery" ? "/reset-password" : next);
     });
-
-    const timeout = setTimeout(() => setFailed(true), 5000);
-    return () => {
-      subscription.unsubscribe();
-      clearTimeout(timeout);
-    };
   }, [router, searchParams]);
 
   return (
