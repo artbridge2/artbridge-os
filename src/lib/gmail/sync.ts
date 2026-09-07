@@ -252,14 +252,32 @@ async function routeArtistApplication(admin: Admin, threadId: string, threadForA
 
 /** Copies a Communication thread's already-fetched messages onto a real artist_outreach_threads/messages pair, then suppresses the original case — future replies on this gmail_thread_id are picked up by upsertThread's existing outreach-thread check, same as an Artbridge-initiated conversation. */
 export async function linkThreadToArtist(admin: Admin, emailThreadId: string, gmailThreadId: string, artistId: string, subject: string | null): Promise<void> {
-  const { data: outreachThread, error } = await admin
+  // A gmail_thread_id can already have an outreach thread (e.g. an earlier
+  // manual fix, or a re-run of this same action) — reuse it instead of
+  // blind-inserting, which would hit gmail_thread_id's unique constraint,
+  // fail, and — since that error used to just log-and-return — silently
+  // skip the suppress step below, leaving the case stuck visible in
+  // Communication even though "Move to Artists" reported success.
+  const { data: existingOutreach } = await admin
     .from("artist_outreach_threads")
-    .insert({ artist_id: artistId, gmail_thread_id: gmailThreadId, subject, last_message_at: new Date().toISOString() })
     .select("id")
-    .single();
-  if (error || !outreachThread) {
-    console.error("[sync] failed to create artist outreach thread for application", error?.message);
-    return;
+    .eq("gmail_thread_id", gmailThreadId)
+    .maybeSingle();
+
+  let outreachThreadId: string;
+  if (existingOutreach) {
+    outreachThreadId = existingOutreach.id;
+  } else {
+    const { data: outreachThread, error } = await admin
+      .from("artist_outreach_threads")
+      .insert({ artist_id: artistId, gmail_thread_id: gmailThreadId, subject, last_message_at: new Date().toISOString() })
+      .select("id")
+      .single();
+    if (error || !outreachThread) {
+      console.error("[sync] failed to create artist outreach thread for application", error?.message);
+      return;
+    }
+    outreachThreadId = outreachThread.id;
   }
 
   const { data: messages } = await admin
@@ -270,7 +288,7 @@ export async function linkThreadToArtist(admin: Admin, emailThreadId: string, gm
   if (messages && messages.length > 0) {
     await admin.from("artist_outreach_messages").upsert(
       messages.map((m) => ({
-        thread_id: outreachThread.id,
+        thread_id: outreachThreadId,
         gmail_message_id: m.gmail_message_id,
         sender: m.sender,
         sanitized_body: m.sanitized_body,
