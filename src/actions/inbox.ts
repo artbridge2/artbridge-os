@@ -168,12 +168,18 @@ export async function setSubjectOverride(threadId: string, title: string) {
 /**
  * Manual escape hatch for when the AI missed a real Artist application
  * (spec follow-up, found live: is_artist_application false negatives).
- * Either links this thread to an existing artist, or creates a new one from
- * the sender — same linkThreadToArtist path the automatic routing uses, so
- * behavior (suppresses the Communication case, copies messages into
+ * Either links this thread to an existing artist, or creates a new one —
+ * same linkThreadToArtist path the automatic routing uses, so behavior
+ * (suppresses the Communication case, copies messages into
  * artist_outreach_threads) matches exactly.
+ *
+ * name/email for a new artist are explicit, human-confirmed inputs, not
+ * auto-derived from the thread's first message anymore — found live that
+ * the "first sender" is sometimes a third party making an introduction
+ * (e.g. someone connecting the real artist to Eszter by email), not the
+ * artist themself, and blindly trusting it created a wrong artist record.
  */
-export async function moveThreadToArtist(threadId: string, existingArtistId: string | null) {
+export async function moveThreadToArtist(threadId: string, existingArtistId: string | null, name?: string, email?: string) {
   const admin = createAdminClient();
   const { data: thread } = await admin
     .from("email_threads")
@@ -184,9 +190,9 @@ export async function moveThreadToArtist(threadId: string, existingArtistId: str
 
   let artistId = existingArtistId;
   if (!artistId) {
-    const senderEmail = thread.sender ? extractEmail(thread.sender) : null;
-    if (!senderEmail) throw new Error("This case has no sender email to create an artist from — link to an existing artist instead.");
-    const senderName = thread.sender?.replace(/<.*>/, "").replace(/"/g, "").trim() || senderEmail;
+    const senderEmail = (email?.trim() || (thread.sender ? extractEmail(thread.sender) : null))?.trim();
+    if (!senderEmail) throw new Error("An email is required to create an artist — link to an existing artist instead.");
+    const senderName = name?.trim() || thread.sender?.replace(/<.*>/, "").replace(/"/g, "").trim() || senderEmail;
 
     const { data: existingByEmail } = await admin.from("artists").select("id").eq("email", senderEmail).maybeSingle();
     if (existingByEmail) {

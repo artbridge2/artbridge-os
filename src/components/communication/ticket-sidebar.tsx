@@ -79,6 +79,10 @@ export function TicketSidebar({
   const [addingLabel, setAddingLabel] = useState(false);
   const [movingToArtist, setMovingToArtist] = useState(false);
   const [artistPick, setArtistPick] = useState("");
+  const senderEmailMatch = thread.sender?.match(/<([^>]+)>/)?.[1] ?? thread.sender ?? "";
+  const senderNameGuess = thread.sender?.replace(/<.*>/, "").replace(/"/g, "").trim() || senderEmailMatch;
+  const [newArtistName, setNewArtistName] = useState(senderNameGuess);
+  const [newArtistEmail, setNewArtistEmail] = useState(senderEmailMatch);
   const name = senderDisplayName(thread);
   const assignableProfiles = profiles.filter((p) => p.role !== "kurator");
 
@@ -319,7 +323,7 @@ export function TicketSidebar({
         ) : (
           <div className="space-y-2">
             <p className="text-[13px] text-[#8a909a]">
-              Moves this case out of Communication and into Artists — either linked to an existing artist, or as a new one created from the sender.
+              Moves this case out of Communication and into Artists — either linked to an existing artist, or as a new one you name below.
             </p>
             <select
               value={artistPick}
@@ -327,20 +331,41 @@ export function TicketSidebar({
               onChange={(e) => setArtistPick(e.target.value)}
               className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-[13px]"
             >
-              <option value="">Create new artist from sender</option>
+              <option value="">Create new artist…</option>
               {artists.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.full_name}
                 </option>
               ))}
             </select>
+            {!artistPick && (
+              <div className="space-y-1.5 rounded-lg border border-[#eeeeee] bg-[#fafafa] p-2">
+                <p className="text-[12px] text-[#9aa0a8]">
+                  Pre-filled from the sender — check it's actually the artist, not just whoever sent this message (e.g. someone making an introduction).
+                </p>
+                <input
+                  value={newArtistName}
+                  onChange={(e) => setNewArtistName(e.target.value)}
+                  placeholder="Artist name"
+                  disabled={pending}
+                  className="h-8 w-full rounded-md border border-input bg-white px-2 text-[13px]"
+                />
+                <input
+                  value={newArtistEmail}
+                  onChange={(e) => setNewArtistEmail(e.target.value)}
+                  placeholder="Artist email"
+                  disabled={pending}
+                  className="h-8 w-full rounded-md border border-input bg-white px-2 text-[13px]"
+                />
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={pending}
+                disabled={pending || (!artistPick && (!newArtistName.trim() || !newArtistEmail.trim()))}
                 onClick={() => {
                   if (!confirm("Move this case to Artists? It will disappear from Communication.")) return;
-                  startTransition(() => moveThreadToArtist(thread.id, artistPick || null));
+                  startTransition(() => moveThreadToArtist(thread.id, artistPick || null, newArtistName, newArtistEmail));
                 }}
                 className="h-8 rounded-md bg-[#12181f] px-3 text-[13px] font-medium text-white disabled:opacity-40"
               >
