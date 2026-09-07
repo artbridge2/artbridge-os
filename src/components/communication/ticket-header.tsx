@@ -1,7 +1,8 @@
 import { ShoppingBag } from "lucide-react";
 import { CasePriorityBadge, CaseStatusBadge } from "@/components/communication/case-status-badge";
 import { CategoryEditor } from "@/components/communication/category-editor";
-import { EditableSubject } from "@/components/communication/editable-subject";
+import { EditableTitle } from "@/components/shared/editable-title";
+import { setSubjectOverride } from "@/actions/inbox";
 import { CATEGORY_STYLE, initials, senderDisplayName } from "@/lib/communication-style";
 import { formatElapsedEn } from "@/lib/dates";
 import { issueTypeLabel, threadReference, type EmailThreadWithRelations } from "@/lib/types";
@@ -27,7 +28,7 @@ export function TicketHeader({ thread, shopifyMatch }: { thread: EmailThreadWith
             <CategoryEditor threadId={thread.id} category={thread.category} />
             {issueLabel && <span className="text-[#9aa0a8]"> · {issueLabel}</span>}
           </p>
-          <EditableSubject threadId={thread.id} title={title} />
+          <EditableTitle title={title} onSave={(next) => setSubjectOverride(thread.id, next)} />
           <p className="text-[13.5px] text-[#8a909a]">
             {name}
             {thread.sender && thread.sender !== name && <> · {thread.sender}</>}

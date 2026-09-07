@@ -281,6 +281,21 @@ export async function getCurrentHistoryId(): Promise<string> {
   return data.historyId!;
 }
 
+/**
+ * RFC 2047 "encoded word" — email headers (unlike the body) are ASCII-only
+ * per RFC 5322, so a raw UTF-8 subject like "próba" put directly into a
+ * `Subject:` header is ambiguous: different mail systems along the way can
+ * each guess a different charset for those bytes, and each wrong guess
+ * compounds into worse-looking mojibake (exactly what showed up live —
+ * "próba" arrived as "prÃƒÂ³ba"). Wrapping it as `=?UTF-8?B?<base64>?=`
+ * removes the ambiguity — every RFC-compliant client, Gmail included,
+ * decodes this unambiguously back to the real UTF-8 text.
+ */
+function encodeHeaderValue(text: string): string {
+  if (/^[\x20-\x7e]*$/.test(text)) return text; // pure ASCII — encoding would only add noise
+  return `=?UTF-8?B?${Buffer.from(text, "utf8").toString("base64")}?=`;
+}
+
 function buildRawMessage(opts: {
   to: string;
   subject: string;
@@ -291,12 +306,15 @@ function buildRawMessage(opts: {
   const headers = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
+    `Subject: ${encodeHeaderValue(opts.subject)}`,
+    "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: base64",
     ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`, `References: ${opts.inReplyTo}`] : []),
   ];
-  const raw = `${headers.join("\r\n")}\r\n\r\n${opts.body}`;
-  return Buffer.from(raw).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const encodedBody = Buffer.from(opts.body, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+  const raw = `${headers.join("\r\n")}\r\n\r\n${encodedBody}`;
+  return Buffer.from(raw, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export async function sendReply(opts: {

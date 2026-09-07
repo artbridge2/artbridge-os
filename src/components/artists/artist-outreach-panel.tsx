@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { generateArtistDraft, generateArtistDraftFromBrief, replyArtistOutreach, sendArtistOutreach } from "@/actions/artists";
+import { generateArtistDraft, generateArtistDraftFromBrief, replyArtistOutreach, sendArtistOutreach, setOutreachSubject } from "@/actions/artists";
 import { AiComposer } from "@/components/shared/ai-composer";
+import { EditableTitle } from "@/components/shared/editable-title";
 import { formatElapsedEn } from "@/lib/dates";
 import type { ArtistOutreachMessage, ArtistOutreachThread } from "@/lib/types";
 
@@ -47,6 +48,16 @@ export function ArtistOutreachPanel({
   return (
     <div className="rounded-xl border border-[#eeeeee] bg-white p-4">
       <p className="text-[13px] font-semibold uppercase tracking-wide text-[#9aa0a8]">Conversation</p>
+
+      {thread && (
+        <div className="mt-1">
+          <EditableTitle
+            title={thread.subject ?? "(no subject)"}
+            onSave={(next) => setOutreachSubject(thread.id, next)}
+            className="text-[15px] font-semibold text-[#12181f]"
+          />
+        </div>
+      )}
 
       {messages.length > 0 && (
         <div className="mt-2 space-y-2">

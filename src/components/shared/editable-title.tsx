@@ -2,10 +2,17 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setSubjectOverride } from "@/actions/inbox";
 
-/** Click-to-edit case title — see subject_override on EmailThread for why this is a separate field from the raw Gmail subject. */
-export function EditableSubject({ threadId, title }: { threadId: string; title: string }) {
+/** Click-to-edit title, shared by Communication case titles and Artist outreach thread subjects. */
+export function EditableTitle({
+  title,
+  onSave,
+  className,
+}: {
+  title: string;
+  onSave: (next: string) => Promise<void>;
+  className?: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -16,10 +23,12 @@ export function EditableSubject({ threadId, title }: { threadId: string; title: 
     setEditing(false);
     if (next.trim() === title.trim()) return;
     startTransition(async () => {
-      await setSubjectOverride(threadId, next);
+      await onSave(next);
       router.refresh();
     });
   }
+
+  const base = className ?? "text-[19px] font-semibold text-[#12181f]";
 
   if (editing) {
     return (
@@ -33,7 +42,7 @@ export function EditableSubject({ threadId, title }: { threadId: string; title: 
           if (e.key === "Enter") { e.preventDefault(); save(); }
           if (e.key === "Escape") setEditing(false);
         }}
-        className="w-full rounded-md border border-input bg-white px-1.5 py-0.5 text-[19px] font-semibold text-[#12181f] outline-none"
+        className={`w-full rounded-md border border-input bg-white px-1.5 py-0.5 outline-none ${base}`}
       />
     );
   }
@@ -44,7 +53,7 @@ export function EditableSubject({ threadId, title }: { threadId: string; title: 
       onClick={() => setEditing(true)}
       disabled={pending}
       title="Click to rename"
-      className="truncate text-left text-[19px] font-semibold text-[#12181f] underline decoration-dotted decoration-from-font underline-offset-4 hover:opacity-70 disabled:opacity-60"
+      className={`truncate text-left underline decoration-dotted decoration-from-font underline-offset-4 hover:opacity-70 disabled:opacity-60 ${base}`}
     >
       {pending ? "Saving…" : title}
     </button>

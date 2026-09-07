@@ -402,6 +402,14 @@ export async function sendArtistOutreach(artistId: string, subject: string, body
   revalidateArtistViews();
 }
 
+/** Human-set display title for an Artist outreach thread — the sent Gmail subject line stays whatever it was when the thread started; this only changes how it's labeled inside Artbridge OS. */
+export async function setOutreachSubject(threadId: string, subject: string) {
+  if (!subject.trim()) return;
+  const supabase = await createClient();
+  await supabase.from("artist_outreach_threads").update({ subject: subject.trim() }).eq("id", threadId);
+  revalidateArtistViews();
+}
+
 /** Replies within an existing Artist outreach thread — never touches Communication. */
 export async function replyArtistOutreach(threadId: string, body: string) {
   if (!body.trim()) return;
