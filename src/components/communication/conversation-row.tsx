@@ -23,7 +23,7 @@ export function ConversationRow({ thread }: { thread: EmailThreadWithRelations }
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="truncate text-[15px] font-semibold text-[#12181f]">{thread.subject ?? "(no subject)"}</p>
+          <p className="truncate text-[15px] font-semibold text-[#12181f]">{thread.subject_override ?? thread.subject ?? "(no subject)"}</p>
           <CasePriorityBadge priority={thread.priority} />
         </div>
         <p className="truncate text-[13px] text-[#8a909a]">{thread.snippet ?? thread.ai_summary ?? ""}</p>

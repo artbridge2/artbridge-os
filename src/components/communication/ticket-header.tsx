@@ -1,6 +1,7 @@
 import { ShoppingBag } from "lucide-react";
 import { CasePriorityBadge, CaseStatusBadge } from "@/components/communication/case-status-badge";
 import { CategoryEditor } from "@/components/communication/category-editor";
+import { EditableSubject } from "@/components/communication/editable-subject";
 import { CATEGORY_STYLE, initials, senderDisplayName } from "@/lib/communication-style";
 import { formatElapsedEn } from "@/lib/dates";
 import { issueTypeLabel, threadReference, type EmailThreadWithRelations } from "@/lib/types";
@@ -10,25 +11,27 @@ export function TicketHeader({ thread, shopifyMatch }: { thread: EmailThreadWith
   const style = CATEGORY_STYLE[thread.category];
   const name = senderDisplayName(thread);
   const issueLabel = issueTypeLabel(thread.issue_type);
+  const title = thread.subject_override ?? thread.subject ?? "(no subject)";
 
   return (
     <div className="flex items-start justify-between gap-4">
-      <div className="flex items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <span
           className="flex size-12 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold"
           style={{ backgroundColor: style.iconBg, color: style.iconColor }}
         >
           {initials(name)}
         </span>
-        <div>
+        <div className="min-w-0">
           <p className="text-[13px] font-medium" style={{ color: style.iconColor }}>
             <CategoryEditor threadId={thread.id} category={thread.category} />
             {issueLabel && <span className="text-[#9aa0a8]"> · {issueLabel}</span>}
           </p>
-          <p className="text-[19px] font-semibold text-[#12181f]">{name}</p>
-          {thread.sender && thread.sender !== name && (
-            <p className="text-[13.5px] text-[#8a909a]">{thread.sender}</p>
-          )}
+          <EditableSubject threadId={thread.id} title={title} />
+          <p className="text-[13.5px] text-[#8a909a]">
+            {name}
+            {thread.sender && thread.sender !== name && <> · {thread.sender}</>}
+          </p>
         </div>
       </div>
 

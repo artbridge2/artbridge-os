@@ -5,6 +5,7 @@ import { getCurrentProfile } from "@/lib/dal";
 import { canAccessCommunication } from "@/lib/permissions";
 import { getEmailMessages, getEmailThreadById } from "@/lib/queries-inbox";
 import { getProfiles } from "@/lib/queries";
+import { getArtistPickerList } from "@/lib/queries-artists";
 import { getGmailConnectionStatus } from "@/lib/gmail/status";
 import { getShopifyConnectionStatus } from "@/lib/shopify/status";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
@@ -24,12 +25,13 @@ export default async function ThreadDetailPage({
   const profile = await getCurrentProfile();
   if (!(await canAccessCommunication(profile))) redirect("/");
 
-  const [thread, messages, profiles, gmailStatus, shopifyStatus] = await Promise.all([
+  const [thread, messages, profiles, gmailStatus, shopifyStatus, artists] = await Promise.all([
     getEmailThreadById(id),
     getEmailMessages(id),
     getProfiles(),
     getGmailConnectionStatus(),
     getShopifyConnectionStatus(),
+    getArtistPickerList(),
   ]);
 
   if (!thread) notFound();
@@ -63,7 +65,7 @@ export default async function ThreadDetailPage({
         <ReplyComposer threadId={thread.id} gmailConnected={gmailStatus.connected} initialDraft={thread.draft_reply} profiles={profiles} />
       </div>
 
-      <TicketSidebar thread={thread} profiles={profiles} shopifyMatch={shopifyMatch} shopifyConnected={shopifyStatus.connected} />
+      <TicketSidebar thread={thread} profiles={profiles} shopifyMatch={shopifyMatch} shopifyConnected={shopifyStatus.connected} artists={artists} />
     </div>
   );
 }

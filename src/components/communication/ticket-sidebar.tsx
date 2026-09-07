@@ -12,6 +12,7 @@ import {
   markNotRelevant,
   markResolved,
   markWaiting,
+  moveThreadToArtist,
   reassignThread,
   restoreCase,
   restoreFromNotRelevant,
@@ -63,17 +64,21 @@ export function TicketSidebar({
   profiles,
   shopifyMatch,
   shopifyConnected,
+  artists,
 }: {
   thread: EmailThreadWithRelations;
   profiles: Profile[];
   shopifyMatch: ShopifyCustomerMatch | null;
   shopifyConnected: boolean;
+  artists: { id: string; full_name: string }[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
   const [labelInput, setLabelInput] = useState("");
   const [addingLabel, setAddingLabel] = useState(false);
+  const [movingToArtist, setMovingToArtist] = useState(false);
+  const [artistPick, setArtistPick] = useState("");
   const name = senderDisplayName(thread);
   const assignableProfiles = profiles.filter((p) => p.role !== "kurator");
 
@@ -299,6 +304,59 @@ export function TicketSidebar({
             }}
           />
         </div>
+      </SidebarCard>
+
+      <SidebarCard title="Wrong module?">
+        {!movingToArtist ? (
+          <button
+            type="button"
+            onClick={() => setMovingToArtist(true)}
+            disabled={pending}
+            className="text-[13.5px] font-medium text-[#3b82f6] hover:underline disabled:opacity-40"
+          >
+            Move to Artists
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[13px] text-[#8a909a]">
+              Moves this case out of Communication and into Artists — either linked to an existing artist, or as a new one created from the sender.
+            </p>
+            <select
+              value={artistPick}
+              disabled={pending}
+              onChange={(e) => setArtistPick(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-[13px]"
+            >
+              <option value="">Create new artist from sender</option>
+              {artists.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.full_name}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (!confirm("Move this case to Artists? It will disappear from Communication.")) return;
+                  startTransition(() => moveThreadToArtist(thread.id, artistPick || null));
+                }}
+                className="h-8 rounded-md bg-[#12181f] px-3 text-[13px] font-medium text-white disabled:opacity-40"
+              >
+                {pending ? "Moving…" : "Confirm move"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMovingToArtist(false)}
+                disabled={pending}
+                className="text-[13px] text-[#9aa0a8] hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </SidebarCard>
     </div>
   );

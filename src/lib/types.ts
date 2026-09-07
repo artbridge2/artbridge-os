@@ -203,6 +203,8 @@ export interface EmailThread {
   id: string;
   gmail_thread_id: string;
   subject: string | null;
+  /** Human-set display title, shown instead of `subject` wherever the case's title appears — never touched by sync (which keeps `subject` mirroring the real Gmail thread). */
+  subject_override: string | null;
   participants: { name?: string; email: string }[];
   sender: string | null;
   last_message_at: string | null;

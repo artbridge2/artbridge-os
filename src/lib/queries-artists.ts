@@ -44,6 +44,13 @@ export async function getArtists(filters: ArtistFilters = {}): Promise<ArtistWit
   return (data ?? []) as unknown as ArtistWithRelations[];
 }
 
+/** Lightweight id/name list for pickers (e.g. "Move to Artists" on a Communication case) — not the full row shape getArtists() returns. */
+export async function getArtistPickerList(): Promise<{ id: string; full_name: string }[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("artists").select("id, full_name").is("deleted_at", null).order("full_name");
+  return data ?? [];
+}
+
 export async function getArtistById(id: string): Promise<ArtistWithRelations | null> {
   const supabase = await createClient();
   const { data } = await supabase.from("artists").select(ARTIST_SELECT).eq("id", id).is("deleted_at", null).single();

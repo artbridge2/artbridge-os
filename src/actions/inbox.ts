@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/dal";
 import { notifyUser, notifyMentions } from "@/lib/notify";
 import { classifyThread, extractEmail, generateReplyDraft, generateReplyDraftFromBrief, type ThreadForAI } from "@/lib/ai/provider";
-import { applyClassification, resolveOwnerProfileId } from "@/lib/gmail/sync";
+import { applyClassification, linkThreadToArtist, resolveOwnerProfileId } from "@/lib/gmail/sync";
 import { sendReply as sendGmailReply } from "@/lib/gmail/client";
 import { findShopifyCustomerByEmail } from "@/lib/shopify/lookup";
 import type { CasePriority, CaseStatus, EmailCategory } from "@/lib/types";
@@ -156,6 +156,58 @@ export async function setIssueType(threadId: string, issueType: string | null) {
   const supabase = await createClient();
   await supabase.from("email_threads").update({ issue_type: issueType }).eq("id", threadId);
   revalidateInboxViews();
+}
+
+/** Human-set display title — see subject_override on EmailThread for why this is separate from `subject`. Empty string clears back to the real subject. */
+export async function setSubjectOverride(threadId: string, title: string) {
+  const supabase = await createClient();
+  await supabase.from("email_threads").update({ subject_override: title.trim() || null }).eq("id", threadId);
+  revalidateInboxViews();
+}
+
+/**
+ * Manual escape hatch for when the AI missed a real Artist application
+ * (spec follow-up, found live: is_artist_application false negatives).
+ * Either links this thread to an existing artist, or creates a new one from
+ * the sender — same linkThreadToArtist path the automatic routing uses, so
+ * behavior (suppresses the Communication case, copies messages into
+ * artist_outreach_threads) matches exactly.
+ */
+export async function moveThreadToArtist(threadId: string, existingArtistId: string | null) {
+  const admin = createAdminClient();
+  const { data: thread } = await admin
+    .from("email_threads")
+    .select("gmail_thread_id, subject, subject_override, sender")
+    .eq("id", threadId)
+    .single();
+  if (!thread) throw new Error("Case not found.");
+
+  let artistId = existingArtistId;
+  if (!artistId) {
+    const senderEmail = thread.sender ? extractEmail(thread.sender) : null;
+    if (!senderEmail) throw new Error("This case has no sender email to create an artist from — link to an existing artist instead.");
+    const senderName = thread.sender?.replace(/<.*>/, "").replace(/"/g, "").trim() || senderEmail;
+
+    const { data: existingByEmail } = await admin.from("artists").select("id").eq("email", senderEmail).maybeSingle();
+    if (existingByEmail) {
+      artistId = existingByEmail.id;
+    } else {
+      const { data: newArtist, error } = await admin
+        .from("artists")
+        .insert({ full_name: senderName, email: senderEmail, source: "applied", status: "in_conversation" })
+        .select("id")
+        .single();
+      if (error || !newArtist) throw new Error("Could not create artist.");
+      artistId = newArtist.id;
+      await admin.from("artist_events").insert({ artist_id: artistId, event_type: "created_from_application", from_value: null, to_value: "in_conversation" });
+    }
+  }
+
+  if (!artistId) throw new Error("Could not determine an artist to link.");
+  await linkThreadToArtist(admin, threadId, thread.gmail_thread_id, artistId, thread.subject_override ?? thread.subject);
+  revalidateInboxViews();
+  revalidatePath(`/artists/${artistId}`);
+  redirect(`/artists/${artistId}`);
 }
 
 /**

@@ -251,7 +251,7 @@ async function routeArtistApplication(admin: Admin, threadId: string, threadForA
 }
 
 /** Copies a Communication thread's already-fetched messages onto a real artist_outreach_threads/messages pair, then suppresses the original case — future replies on this gmail_thread_id are picked up by upsertThread's existing outreach-thread check, same as an Artbridge-initiated conversation. */
-async function linkThreadToArtist(admin: Admin, emailThreadId: string, gmailThreadId: string, artistId: string, subject: string | null): Promise<void> {
+export async function linkThreadToArtist(admin: Admin, emailThreadId: string, gmailThreadId: string, artistId: string, subject: string | null): Promise<void> {
   const { data: outreachThread, error } = await admin
     .from("artist_outreach_threads")
     .insert({ artist_id: artistId, gmail_thread_id: gmailThreadId, subject, last_message_at: new Date().toISOString() })
