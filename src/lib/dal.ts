@@ -8,24 +8,28 @@ import type { Profile } from "@/lib/types";
 export const VIEWING_COOKIE = "viewing_user_id";
 
 /**
- * Resolves the signed-in user's profile row. The proxy already redirects
- * unauthenticated requests to /login, but every data-reading entry point
- * re-checks here too (defense in depth, per Next.js auth guidance).
+ * Resolves the signed-in user's profile row. The proxy (src/lib/supabase/proxy.ts)
+ * already calls `getUser()` on every matched request — the network round trip
+ * that actually revalidates the token against Supabase Auth — and redirects
+ * unauthenticated requests to /login before this ever runs. Re-doing that same
+ * network call here on every render was pure duplicate latency, so this uses
+ * `getSession()` (decodes the already-proxy-verified JWT locally, no network
+ * hop) instead. Still redirects defensively if the cookie is somehow missing.
  */
 export const getCurrentProfile = cache(async (): Promise<Profile> => {
   const supabase = await createClient();
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/login");
   }
 
   const { data: profile } = await supabase
     .from("profiles")
     .select("id, full_name, role, email")
-    .eq("id", user.id)
+    .eq("id", session.user.id)
     .single();
 
   if (!profile) {

@@ -14,8 +14,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const profile = await getCurrentProfile();
   // Sidebar/topbar badge counts follow the "Viewing: X" context (spec §11)
   // when one is active — permissions below always stay the real viewer's.
-  const viewedProfile = await getViewedProfile();
-  const capabilities = await getEffectiveCapabilities(profile);
+  // Neither depends on the other's result, so run them in parallel.
+  const [viewedProfile, capabilities] = await Promise.all([
+    getViewedProfile(),
+    getEffectiveCapabilities(profile),
+  ]);
   const canSeeCommunication =
     capabilities.communications_customer ||
     capabilities.communications_artist ||
