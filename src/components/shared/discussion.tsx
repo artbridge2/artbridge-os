@@ -53,7 +53,7 @@ export function Discussion({
   function submit() {
     if (!text.trim()) return;
     setError(null);
-    const mentionedProfileIds = resolveMentions(text, picks);
+    const mentionedProfileIds = resolveMentions(text, picks, profiles);
     startTransition(async () => {
       try {
         await onPost(text, mentionedProfileIds);

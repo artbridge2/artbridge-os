@@ -3,10 +3,32 @@
 import { useMemo, useRef, useState } from "react";
 import type { Profile } from "@/lib/types";
 
-/** Given final comment text and the profiles picked from the dropdown while composing it, keeps only the picks whose "@Name" text is still actually present — so deleting a mention from the text also drops the notification. */
-export function resolveMentions(text: string, picks: { id: string; name: string }[]): string[] {
+/**
+ * Given final comment text, the profiles picked from the dropdown while
+ * composing it, and the full team roster, resolves which profiles should be
+ * notified. Two paths, unioned:
+ *  1. Structured picks whose "@Name" text is still actually present — so
+ *     deleting a mention from the text also drops the notification.
+ *  2. A plain-typed "@FullName" that exactly matches a real profile but was
+ *     never clicked from the dropdown (e.g. typed fast and Enter hit before
+ *     the suggestion was selected) — without this, the text visibly shows
+ *     "@Eszter" but silently notifies no one, which is confusing since
+ *     nothing in the UI distinguishes a "real" mention from typed text.
+ */
+export function resolveMentions(
+  text: string,
+  picks: { id: string; name: string }[],
+  profiles: Pick<Profile, "id" | "full_name">[] = []
+): string[] {
   const lower = text.toLowerCase();
-  return picks.filter((p) => lower.includes(`@${p.name.toLowerCase()}`)).map((p) => p.id);
+  const ids = new Set<string>();
+  for (const p of picks) {
+    if (lower.includes(`@${p.name.toLowerCase()}`)) ids.add(p.id);
+  }
+  for (const p of profiles) {
+    if (lower.includes(`@${p.full_name.toLowerCase()}`)) ids.add(p.id);
+  }
+  return [...ids];
 }
 
 /**

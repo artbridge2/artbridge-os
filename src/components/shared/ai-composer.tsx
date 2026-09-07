@@ -78,7 +78,7 @@ export function AiComposer({
   function submit() {
     if (!text.trim()) return;
     setError(null);
-    const mentionedProfileIds = mentionable ? resolveMentions(text, picks) : [];
+    const mentionedProfileIds = mentionable ? resolveMentions(text, picks, profiles) : [];
     startTransition(async () => {
       try {
         await onSend(text, mentionedProfileIds);
